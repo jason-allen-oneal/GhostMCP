@@ -1322,7 +1322,7 @@ def binwalk_tool(
 @mcp.tool()
 def multi_model_reasoning_tool(
     prompt: str,
-    provider: Literal["openai", "anthropic", "gemini"] = "openai",
+    provider: Literal["openai", "anthropic", "gemini", "ollama"] = "openai",
     model: str | None = None,
     engagement_id: str | None = None,
     auth_token: str | None = None,
@@ -1359,6 +1359,17 @@ def multi_model_reasoning_tool(
             gemini = genai.GenerativeModel(model_name, system_instruction=system_instruction)
             resp = gemini.generate_content(prompt)
             return {"provider": "gemini", "model": model_name, "response": resp.text}
+
+        elif provider == "ollama":
+            base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+            model_name = model or "llama3.1"
+            import requests
+            resp = requests.post(f"{base_url}/api/generate", json={
+                "model": model_name,
+                "prompt": f"{system_instruction}\n\n{prompt}",
+                "stream": False
+            })
+            return {"provider": "ollama", "model": model_name, "response": resp.json().get("response", "")}
             
     except Exception as e:
         return {"status": "error", "message": str(e)}
