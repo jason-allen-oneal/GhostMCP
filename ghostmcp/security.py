@@ -12,6 +12,9 @@ DOMAIN_RE = re.compile(
 )
 
 
+from .credentials import CredentialStore
+
+
 @dataclass
 class ValidationResult:
     host: str
@@ -21,6 +24,25 @@ class ValidationResult:
 class SecurityPolicy:
     def __init__(self, config: ServerConfig) -> None:
         self.config = config
+        store_path = os.getenv("GHOSTMCP_CREDENTIAL_STORE", "credentials.json")
+        self.credentials = CredentialStore(store_path)
+
+    def inject_credentials(self, tool_id: str, target: str, args: list[str]) -> list[str]:
+        """Inject credentials from the store into the command arguments."""
+        creds = self.credentials.get_credentials(tool_id, target)
+        if not creds:
+            return args
+        
+        # Tool-specific injection logic
+        new_args = list(args)
+        if tool_id == "sqlmap" and "auth_type" in creds:
+            # Example: --auth-type=basic --auth-cred=user:pass
+            new_args.extend([f"--auth-type={creds['auth_type']}", f"--auth-cred={creds['user']}:{creds['pass']}"])
+        elif tool_id == "hydra":
+            # For hydra, we might override user/pass if provided in store
+            pass # hydra usually takes user/pass as positional or -l/-p
+            
+        return new_args
 
     def validate_domain(self, domain: str) -> str:
         candidate = domain.strip().lower()

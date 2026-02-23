@@ -117,22 +117,66 @@ def _run_external_tool(
                 _ACTIVE_PROCS.discard(proc)
 
 
-def run_external_binary(
-    binary: str,
-    args: list[str] | None = None,
-    timeout_s: float = 120.0,
-    max_stdout_bytes: int = 20000,
-    max_stderr_bytes: int = 8000,
-) -> dict:
-    command = [binary]
+def verify_audit_log_integrity(log_path: str) -> dict:
+    """Validate the hash chain of the audit log."""
+    if not os.path.exists(log_path):
+        return {"status": "error", "message": "Log file not found"}
+
+    integrity_errors = []
+    events_processed = 0
+    expected_prev_hash = "0" * 64
+
+    with open(log_path, "r") as f:
+        for line_num, line in enumerate(f, 1):
+            try:
+                event = json.loads(line)
+                events_processed += 1
+                
+                # Check link
+                if event.get("prev_hash") != expected_prev_hash:
+                    integrity_errors.append(f"Line {line_num}: Hash chain break")
+                
+                # Calculate current hash (excluding the hash fields themselves)
+                base_event = {k: v for k, v in event.items() if k not in ("event_hash", "signature")}
+                event_str = json.dumps(base_event, sort_keys=True)
+                calculated_hash = hashlib.sha256(event_str.encode()).hexdigest()
+                
+                if event.get("event_hash") != calculated_hash:
+                    integrity_errors.append(f"Line {line_num}: Event hash mismatch")
+                
+                expected_prev_hash = event.get("event_hash")
+            except Exception as e:
+                integrity_errors.append(f"Line {line_num}: JSON parse error - {str(e)}")
+
+    return {
+        "status": "success" if not integrity_errors else "failed",
+        "events_processed": events_processed,
+        "errors": integrity_errors
+    }
+
+
+def sqlmap_scan(url: str, args: list[str] | None = None, timeout_s: float = 300.0) -> dict:
+    command = ["sqlmap", "-u", url, "--batch", "--random-agent"]
     if args:
         command.extend(args)
-    return _run_external_tool(
-        command,
-        timeout_s=timeout_s,
-        max_stdout_bytes=max_stdout_bytes,
-        max_stderr_bytes=max_stderr_bytes,
-    )
+    return _run_external_tool(command, timeout_s=timeout_s)
+
+
+def hydra_scan(target: str, service: str, user: str, wordlist: str, timeout_s: float = 300.0) -> dict:
+    command = ["hydra", "-l", user, "-P", wordlist, target, service]
+    return _run_external_tool(command, timeout_s=timeout_s)
+
+
+def enum4linux_ng_scan(host: str, timeout_s: float = 300.0) -> dict:
+    command = ["enum4linux-ng", "-A", host]
+    return _run_external_tool(command, timeout_s=timeout_s)
+
+
+def crackmapexec_scan(service: str, target: str, args: list[str] | None = None, timeout_s: float = 300.0) -> dict:
+    command = ["crackmapexec", service, target]
+    if args:
+        command.extend(args)
+    return _run_external_tool(command, timeout_s=timeout_s)
 
 
 def _with_retry(fn, retries: int = 1, backoff_s: float = 0.5):
@@ -464,19 +508,27 @@ def generate_common_web_paths(
     return [f"{root}{path}" for path in paths]
 
 
+from .parsers.nmap import parse_nmap_xml
+
+
 def nmap_service_scan(
     host: str,
     ports: list[int] | None = None,
     top_ports: int = 100,
     timeout_s: float = 120.0,
 ) -> dict:
-    command = ["nmap", "-Pn", "-sV"]
+    command = ["nmap", "-Pn", "-sV", "-oX", "-"]
     if ports:
         command.extend(["-p", ",".join(str(p) for p in ports)])
     else:
         command.extend(["--top-ports", str(top_ports)])
     command.append(host)
     result = _run_external_tool(command, timeout_s=timeout_s)
+    
+    if result.get("exit_code") == 0:
+        # Structured parsing of XML output
+        result["parsed"] = parse_nmap_xml(result.get("stdout", ""))
+    
     result["host"] = host
     return result
 

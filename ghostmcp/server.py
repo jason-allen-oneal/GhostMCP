@@ -6,6 +6,9 @@ import json
 import logging
 import os
 import shutil
+import openai
+import google.generativeai as genai
+import anthropic
 import signal
 import ssl
 import sys
@@ -26,23 +29,27 @@ from .scanners import (
     ScannerError,
     ScannerTimeoutError,
     amass_passive_enum,
+    crackmapexec_scan,
     dns_lookup,
+    enum4linux_ng_scan,
     extract_iocs,
     fetch_security_txt,
     generate_common_web_paths,
     generate_subdomain_candidates,
     gobuster_dir_scan,
     http_probe,
+    hydra_scan,
     nikto_scan,
     nmap_service_scan,
     port_scan,
     reverse_dns,
-    run_external_binary,
+    sqlmap_scan,
     sslscan_target,
     terminate_active_processes,
     tls_certificate,
     tls_certificate_expiry,
     url_risk_score,
+    verify_audit_log_integrity,
     wafw00f_scan,
     whatweb_scan,
     whois_query,
@@ -196,6 +203,10 @@ SUPPORTED_EXTERNAL_TOOL_BINARIES = {
     "gobuster_dir_tool": "gobuster",
     "sslscan_tool": "sslscan",
     "wafw00f_tool": "wafw00f",
+    "sqlmap_tool": "sqlmap",
+    "hydra_tool": "hydra",
+    "enum4linux_ng_tool": "enum4linux-ng",
+    "crackmapexec_tool": "crackmapexec",
 }
 
 
@@ -994,6 +1005,137 @@ def metrics_tool(
     snapshot["denied_rate"] = snapshot["denied_total"] / calls
     snapshot["avg_duration_ms"] = snapshot["duration_ms_total"] / calls
     return snapshot
+
+
+@mcp.tool()
+def verify_audit_log_integrity_tool(
+    engagement_id: str | None = None,
+    engagement_mode: Literal["passive", "active", "intrusive"] = "passive",
+    auth_token: str | None = None,
+) -> dict:
+    """Validate the integrity of the audit log hash chain."""
+    context = _authorize(
+        "verify_audit_log_integrity_tool", "passive", engagement_id, engagement_mode, auth_token
+    )
+    if not AUDIT_SINK_PATH:
+        return {"status": "error", "message": "Audit sink is not enabled"}
+    _audit_tool_call("verify_audit_log_integrity_tool", context)
+    return verify_audit_log_integrity(AUDIT_SINK_PATH)
+
+
+@_optional_binary_tool("sqlmap_tool")
+@_instrument_tool("sqlmap_tool", "intrusive")
+def sqlmap_tool(
+    url: str,
+    args: list[str] | None = None,
+    engagement_id: str | None = None,
+    engagement_mode: Literal["passive", "active", "intrusive"] = "intrusive",
+    auth_token: str | None = None,
+) -> dict:
+    """Run automated SQL injection tests using sqlmap."""
+    context = _authorize("sqlmap_tool", "intrusive", engagement_id, engagement_mode, auth_token)
+    _enforce_url_scope(url)
+    injected_args = policy.inject_credentials("sqlmap", url, args or [])
+    _audit_tool_call("sqlmap_tool", context, target=url)
+    return sqlmap_scan(url, args=injected_args)
+
+
+@_optional_binary_tool("hydra_tool")
+@_instrument_tool("hydra_tool", "intrusive")
+def hydra_tool(
+    target: str,
+    service: str,
+    user: str,
+    wordlist: str,
+    engagement_id: str | None = None,
+    engagement_mode: Literal["passive", "active", "intrusive"] = "intrusive",
+    auth_token: str | None = None,
+) -> dict:
+    """Run password brute-force tests using hydra."""
+    context = _authorize("hydra_tool", "intrusive", engagement_id, engagement_mode, auth_token)
+    policy.validate_target(target)
+    _audit_tool_call("hydra_tool", context, target=target)
+    return hydra_scan(target, service, user, wordlist)
+
+
+@_optional_binary_tool("enum4linux_ng_tool")
+@_instrument_tool("enum4linux_ng_tool", "active")
+def enum4linux_ng_tool(
+    host: str,
+    engagement_id: str | None = None,
+    engagement_mode: Literal["passive", "active", "intrusive"] = "active",
+    auth_token: str | None = None,
+) -> dict:
+    """Run SMB/Windows enumeration using enum4linux-ng."""
+    context = _authorize("enum4linux_ng_tool", "active", engagement_id, engagement_mode, auth_token)
+    policy.validate_target(host)
+    _audit_tool_call("enum4linux_ng_tool", context, target=host)
+    return enum4linux_ng_scan(host)
+
+
+@_optional_binary_tool("crackmapexec_tool")
+@_instrument_tool("crackmapexec_tool", "active")
+def crackmapexec_tool(
+    service: str,
+    target: str,
+    args: list[str] | None = None,
+    engagement_id: str | None = None,
+    engagement_mode: Literal["passive", "active", "intrusive"] = "active",
+    auth_token: str | None = None,
+) -> dict:
+    """Run network service assessment using crackmapexec."""
+    context = _authorize("crackmapexec_tool", "active", engagement_id, engagement_mode, auth_token)
+    policy.validate_target(target)
+    injected_args = policy.inject_credentials("crackmapexec", target, args or [])
+    _audit_tool_call("crackmapexec_tool", context, target=target)
+    return crackmapexec_scan(service, target, args=injected_args)
+
+
+@mcp.tool()
+def multi_model_reasoning_tool(
+    prompt: str,
+    provider: Literal["openai", "anthropic", "gemini"] = "openai",
+    model: str | None = None,
+    engagement_id: str | None = None,
+    auth_token: str | None = None,
+) -> dict:
+    """Enhanced reasoning using various LLM providers for complex security analysis."""
+    _authorize("multi_model_reasoning_tool", "passive", engagement_id, "passive", auth_token)
+    
+    system_instruction = "You are a senior security architect. Analyze the provided prompt and return a concise, structured response."
+    
+    try:
+        if provider == "openai":
+            client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            model_name = model or "gpt-4o"
+            resp = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "system", "content": system_instruction}, {"role": "user", "content": prompt}]
+            )
+            return {"provider": "openai", "model": model_name, "response": resp.choices[0].message.content}
+            
+        elif provider == "anthropic":
+            client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+            model_name = model or "claude-3-5-sonnet-20241022"
+            resp = client.messages.create(
+                model=model_name,
+                max_tokens=1024,
+                system=system_instruction,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return {"provider": "anthropic", "model": model_name, "response": resp.content[0].text}
+            
+        elif provider == "gemini":
+            genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+            model_name = model or "gemini-1.5-pro"
+            gemini = genai.GenerativeModel(model_name, system_instruction=system_instruction)
+            resp = gemini.generate_content(prompt)
+            return {"provider": "gemini", "model": model_name, "response": resp.text}
+            
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+    
+    return {"status": "error", "message": f"Unsupported provider: {provider}"}
 
 
 @mcp.tool()
