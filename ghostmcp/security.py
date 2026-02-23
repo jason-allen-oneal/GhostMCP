@@ -12,6 +12,7 @@ DOMAIN_RE = re.compile(
 )
 
 
+import os
 from .credentials import CredentialStore
 
 

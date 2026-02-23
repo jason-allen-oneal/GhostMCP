@@ -29,9 +29,13 @@ from .scanners import (
     ScannerError,
     ScannerTimeoutError,
     amass_passive_enum,
+    binwalk_scan,
     crackmapexec_scan,
+    dirsearch_scan,
     dns_lookup,
+    dnsrecon_scan,
     enum4linux_ng_scan,
+    exiftool_scan,
     extract_iocs,
     fetch_security_txt,
     generate_common_web_paths,
@@ -39,13 +43,21 @@ from .scanners import (
     gobuster_dir_scan,
     http_probe,
     hydra_scan,
+    masscan_scan,
     nikto_scan,
     nmap_service_scan,
+    nuclei_scan,
     port_scan,
     reverse_dns,
+    rpcclient_query,
+    searchsploit_query,
+    smbclient_list,
+    smbmap_scan,
     sqlmap_scan,
     sslscan_target,
+    sslyze_scan,
     terminate_active_processes,
+    theharvester_scan,
     tls_certificate,
     tls_certificate_expiry,
     url_risk_score,
@@ -53,6 +65,7 @@ from .scanners import (
     wafw00f_scan,
     whatweb_scan,
     whois_query,
+    wpscan_scan,
 )
 from .security import SecurityPolicy
 
@@ -207,6 +220,19 @@ SUPPORTED_EXTERNAL_TOOL_BINARIES = {
     "hydra_tool": "hydra",
     "enum4linux_ng_tool": "enum4linux-ng",
     "crackmapexec_tool": "crackmapexec",
+    "theharvester_tool": "theHarvester",
+    "masscan_tool": "masscan",
+    "dnsrecon_tool": "dnsrecon",
+    "wpscan_tool": "wpscan",
+    "dirsearch_tool": "dirsearch",
+    "sslyze_tool": "sslyze",
+    "smbmap_tool": "smbmap",
+    "smbclient_tool": "smbclient",
+    "rpcclient_tool": "rpcclient",
+    "searchsploit_tool": "searchsploit",
+    "nuclei_tool": "nuclei",
+    "exiftool_tool": "exiftool",
+    "binwalk_tool": "binwalk",
 }
 
 
@@ -1089,6 +1115,208 @@ def crackmapexec_tool(
     injected_args = policy.inject_credentials("crackmapexec", target, args or [])
     _audit_tool_call("crackmapexec_tool", context, target=target)
     return crackmapexec_scan(service, target, args=injected_args)
+
+
+@_optional_binary_tool("theharvester_tool")
+@_instrument_tool("theharvester_tool", "passive")
+def theharvester_tool(
+    domain: str,
+    source: str = "google",
+    engagement_id: str | None = None,
+    engagement_mode: Literal["passive", "active", "intrusive"] = "passive",
+    auth_token: str | None = None,
+) -> dict:
+    """Run OSINT gathering with theHarvester."""
+    context = _authorize("theharvester_tool", "passive", engagement_id, engagement_mode, auth_token)
+    validated_domain = policy.validate_domain(domain)
+    _audit_tool_call("theharvester_tool", context, target=validated_domain)
+    return theharvester_scan(validated_domain, source=source)
+
+
+@_optional_binary_tool("masscan_tool")
+@_instrument_tool("masscan_tool", "active")
+def masscan_tool(
+    targets: str,
+    ports: str,
+    rate: int = 1000,
+    engagement_id: str | None = None,
+    engagement_mode: Literal["passive", "active", "intrusive"] = "active",
+    auth_token: str | None = None,
+) -> dict:
+    """Run high-speed port scanning with masscan."""
+    context = _authorize("masscan_tool", "active", engagement_id, engagement_mode, auth_token)
+    # Note: validation for masscan targets (CIDR/range) needed
+    _audit_tool_call("masscan_tool", context, target=targets)
+    return masscan_scan(targets, ports, rate=rate)
+
+
+@_optional_binary_tool("dnsrecon_tool")
+@_instrument_tool("dnsrecon_tool", "active")
+def dnsrecon_tool(
+    domain: str,
+    scan_type: str = "std",
+    engagement_id: str | None = None,
+    engagement_mode: Literal["passive", "active", "intrusive"] = "active",
+    auth_token: str | None = None,
+) -> dict:
+    """Run DNS enumeration with dnsrecon."""
+    context = _authorize("dnsrecon_tool", "active", engagement_id, engagement_mode, auth_token)
+    validated_domain = policy.validate_domain(domain)
+    _audit_tool_call("dnsrecon_tool", context, target=validated_domain)
+    return dnsrecon_scan(validated_domain, scan_type=scan_type)
+
+
+@_optional_binary_tool("wpscan_tool")
+@_instrument_tool("wpscan_tool", "intrusive")
+def wpscan_tool(
+    url: str,
+    args: list[str] | None = None,
+    engagement_id: str | None = None,
+    engagement_mode: Literal["passive", "active", "intrusive"] = "intrusive",
+    auth_token: str | None = None,
+) -> dict:
+    """Run WordPress vulnerability scanning with wpscan."""
+    context = _authorize("wpscan_tool", "intrusive", engagement_id, engagement_mode, auth_token)
+    _enforce_url_scope(url)
+    _audit_tool_call("wpscan_tool", context, target=url)
+    return wpscan_scan(url, args=args)
+
+
+@_optional_binary_tool("dirsearch_tool")
+@_instrument_tool("dirsearch_tool", "intrusive")
+def dirsearch_tool(
+    url: str,
+    args: list[str] | None = None,
+    engagement_id: str | None = None,
+    engagement_mode: Literal["passive", "active", "intrusive"] = "intrusive",
+    auth_token: str | None = None,
+) -> dict:
+    """Run directory brute-forcing with dirsearch."""
+    context = _authorize("dirsearch_tool", "intrusive", engagement_id, engagement_mode, auth_token)
+    _enforce_url_scope(url)
+    _audit_tool_call("dirsearch_tool", context, target=url)
+    return dirsearch_scan(url, args=args)
+
+
+@_optional_binary_tool("sslyze_tool")
+@_instrument_tool("sslyze_tool", "active")
+def sslyze_tool(
+    target: str,
+    engagement_id: str | None = None,
+    engagement_mode: Literal["passive", "active", "intrusive"] = "active",
+    auth_token: str | None = None,
+) -> dict:
+    """Run advanced SSL/TLS analysis with sslyze."""
+    context = _authorize("sslyze_tool", "active", engagement_id, engagement_mode, auth_token)
+    policy.validate_target(target)
+    _audit_tool_call("sslyze_tool", context, target=target)
+    return sslyze_scan(target)
+
+
+@_optional_binary_tool("smbmap_tool")
+@_instrument_tool("smbmap_tool", "active")
+def smbmap_tool(
+    host: str,
+    args: list[str] | None = None,
+    engagement_id: str | None = None,
+    engagement_mode: Literal["passive", "active", "intrusive"] = "active",
+    auth_token: str | None = None,
+) -> dict:
+    """Run SMB share enumeration with smbmap."""
+    context = _authorize("smbmap_tool", "active", engagement_id, engagement_mode, auth_token)
+    policy.validate_target(host)
+    _audit_tool_call("smbmap_tool", context, target=host)
+    return smbmap_scan(host, args=args)
+
+
+@_optional_binary_tool("smbclient_tool")
+@_instrument_tool("smbclient_tool", "active")
+def smbclient_tool(
+    host: str,
+    engagement_id: str | None = None,
+    engagement_mode: Literal["passive", "active", "intrusive"] = "active",
+    auth_token: str | None = None,
+) -> dict:
+    """List SMB shares with smbclient."""
+    context = _authorize("smbclient_tool", "active", engagement_id, engagement_mode, auth_token)
+    policy.validate_target(host)
+    _audit_tool_call("smbclient_tool", context, target=host)
+    return smbclient_list(host)
+
+
+@_optional_binary_tool("rpcclient_tool")
+@_instrument_tool("rpcclient_tool", "active")
+def rpcclient_tool(
+    host: str,
+    command: str = "enumdomusers",
+    engagement_id: str | None = None,
+    engagement_mode: Literal["passive", "active", "intrusive"] = "active",
+    auth_token: str | None = None,
+) -> dict:
+    """Query MSRPC endpoints with rpcclient."""
+    context = _authorize("rpcclient_tool", "active", engagement_id, engagement_mode, auth_token)
+    policy.validate_target(host)
+    _audit_tool_call("rpcclient_tool", context, target=host)
+    return rpcclient_query(host, command=command)
+
+
+@_optional_binary_tool("searchsploit_tool")
+@_instrument_tool("searchsploit_tool", "passive")
+def searchsploit_tool(
+    query: str,
+    engagement_id: str | None = None,
+    engagement_mode: Literal["passive", "active", "intrusive"] = "passive",
+    auth_token: str | None = None,
+) -> dict:
+    """Search for exploits in the local Exploit Database mirror."""
+    context = _authorize("searchsploit_tool", "passive", engagement_id, engagement_mode, auth_token)
+    _audit_tool_call("searchsploit_tool", context, query=query)
+    return searchsploit_query(query)
+
+
+@_optional_binary_tool("nuclei_tool")
+@_instrument_tool("nuclei_tool", "intrusive")
+def nuclei_tool(
+    target: str,
+    templates: str | None = None,
+    engagement_id: str | None = None,
+    engagement_mode: Literal["passive", "active", "intrusive"] = "intrusive",
+    auth_token: str | None = None,
+) -> dict:
+    """Run vulnerability scanning with nuclei templates."""
+    context = _authorize("nuclei_tool", "intrusive", engagement_id, engagement_mode, auth_token)
+    # target can be URL or IP
+    _audit_tool_call("nuclei_tool", context, target=target)
+    return nuclei_scan(target, templates=templates)
+
+
+@_optional_binary_tool("exiftool_tool")
+@_instrument_tool("exiftool_tool", "passive")
+def exiftool_tool(
+    file_path: str,
+    engagement_id: str | None = None,
+    engagement_mode: Literal["passive", "active", "intrusive"] = "passive",
+    auth_token: str | None = None,
+) -> dict:
+    """Extract metadata from files with exiftool."""
+    context = _authorize("exiftool_tool", "passive", engagement_id, engagement_mode, auth_token)
+    # file_path should be local or in /tmp
+    _audit_tool_call("exiftool_tool", context, path=file_path)
+    return exiftool_scan(file_path)
+
+
+@_optional_binary_tool("binwalk_tool")
+@_instrument_tool("binwalk_tool", "passive")
+def binwalk_tool(
+    file_path: str,
+    engagement_id: str | None = None,
+    engagement_mode: Literal["passive", "active", "intrusive"] = "passive",
+    auth_token: str | None = None,
+) -> dict:
+    """Analyze files for embedded data with binwalk."""
+    context = _authorize("binwalk_tool", "passive", engagement_id, engagement_mode, auth_token)
+    _audit_tool_call("binwalk_tool", context, path=file_path)
+    return binwalk_scan(file_path)
 
 
 @mcp.tool()

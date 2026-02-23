@@ -592,6 +592,79 @@ def wafw00f_scan(url: str, timeout_s: float = 90.0) -> dict:
     return result
 
 
+def theharvester_scan(domain: str, source: str = "google", timeout_s: float = 300.0) -> dict:
+    command = ["theHarvester", "-d", domain, "-b", source]
+    return _run_external_tool(command, timeout_s=timeout_s)
+
+
+def masscan_scan(targets: str, ports: str, rate: int = 1000, timeout_s: float = 300.0) -> dict:
+    command = ["masscan", targets, "-p", ports, "--rate", str(rate)]
+    return _run_external_tool(command, timeout_s=timeout_s)
+
+
+def dnsrecon_scan(domain: str, scan_type: str = "std", timeout_s: float = 300.0) -> dict:
+    command = ["dnsrecon", "-d", domain, "-t", scan_type]
+    return _run_external_tool(command, timeout_s=timeout_s)
+
+
+def wpscan_scan(url: str, args: list[str] | None = None, timeout_s: float = 600.0) -> dict:
+    command = ["wpscan", "--url", url, "--format", "json", "--random-user-agent", "--force"]
+    if args:
+        command.extend(args)
+    return _run_external_tool(command, timeout_s=timeout_s)
+
+
+def dirsearch_scan(url: str, args: list[str] | None = None, timeout_s: float = 600.0) -> dict:
+    command = ["dirsearch", "-u", url, "--format=json", "--no-color"]
+    if args:
+        command.extend(args)
+    return _run_external_tool(command, timeout_s=timeout_s)
+
+
+def sslyze_scan(target: str, timeout_s: float = 300.0) -> dict:
+    command = ["sslyze", "--json_out=-", target]
+    return _run_external_tool(command, timeout_s=timeout_s)
+
+
+def smbmap_scan(host: str, args: list[str] | None = None, timeout_s: float = 300.0) -> dict:
+    command = ["smbmap", "-H", host]
+    if args:
+        command.extend(args)
+    return _run_external_tool(command, timeout_s=timeout_s)
+
+
+def smbclient_list(host: str, timeout_s: float = 300.0) -> dict:
+    command = ["smbclient", "-L", host, "-N"]
+    return _run_external_tool(command, timeout_s=timeout_s)
+
+
+def rpcclient_query(host: str, command: str = "enumdomusers", timeout_s: float = 300.0) -> dict:
+    command_list = ["rpcclient", "-U", "", "-N", host, "-c", command]
+    return _run_external_tool(command_list, timeout_s=timeout_s)
+
+
+def searchsploit_query(query: str, timeout_s: float = 60.0) -> dict:
+    command = ["searchsploit", "--json", query]
+    return _run_external_tool(command, timeout_s=timeout_s)
+
+
+def nuclei_scan(target: str, templates: str | None = None, timeout_s: float = 600.0) -> dict:
+    command = ["nuclei", "-u", target, "-json-export", "-"]
+    if templates:
+        command.extend(["-t", templates])
+    return _run_external_tool(command, timeout_s=timeout_s)
+
+
+def exiftool_scan(file_path: str, timeout_s: float = 60.0) -> dict:
+    command = ["exiftool", "-json", file_path]
+    return _run_external_tool(command, timeout_s=timeout_s)
+
+
+def binwalk_scan(file_path: str, timeout_s: float = 300.0) -> dict:
+    command = ["binwalk", file_path]
+    return _run_external_tool(command, timeout_s=timeout_s)
+
+
 def port_scan(
     host: str,
     ports: list[int],
