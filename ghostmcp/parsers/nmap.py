@@ -1,5 +1,6 @@
-from defusedxml import ElementTree as ET
 from typing import Any
+
+from defusedxml import ElementTree as ET
 
 
 def parse_nmap_xml(xml_content: str) -> dict[str, Any]:
