@@ -13,20 +13,39 @@ It provides:
 - Transport/auth policy for non-local gateway mode
 - Runtime metrics, health probes, and SIEM audit export
 
-## How It Works
-GhostMCP has a single binary tool system:
-- At startup, it scans a Kali-common binary list.
-- Only binaries found on `PATH` are enabled as MCP tools.
-- Missing binaries are not registered, so the LLM cannot call them.
+## Remote Transport Security
+GhostMCP supports a `streamable-http` transport via `GHOSTMCP_TRANSPORT_MODE=remote_gateway`. This allows the server to run on a separate host from the LLM client.
 
-Trusted transport patterns:
-- `stdio` for local/sidecar deployments (default)
-- `remote_gateway` served by in-process `streamable-http` transport
+### Threat Model & Auth Modes
+1. **`AUTH_MODE=none`**: **Hard blocked** in remote mode unless `GHOSTMCP_ALLOW_INSECURE_REMOTE_NO_AUTH=true` is set. Use this only for local testing.
+2. **`AUTH_MODE=token`**: Requires `GHOSTMCP_AUTH_TOKEN`. The client must provide this token in the `auth_token` field of tool calls.
+3. **`AUTH_MODE=mtls`**: The most secure mode. Requires valid CA, client certificate, and private key. Enforces mutual TLS at the transport layer.
 
-You will see startup status including:
-- `Tools enabled: <enabled>/<total>`
-- `Binary tools enabled: <enabled>/<total>`
-- `Enabled binaries: ...`
+**Recommendations:**
+- Always use `mtls` for production remote deployments.
+- Bind to a specific internal interface (`GHOSTMCP_HTTP_HOST`) rather than `0.0.0.0` when possible.
+- Use a firewall to restrict access to the `GHOSTMCP_HTTP_PORT`.
+
+## Deployment Quickstart
+
+### Systemd (Linux)
+1. Edit `deploy/systemd/ghostmcp.service` with your environment variables.
+2. Link or copy the service file:
+   ```bash
+   sudo cp deploy/systemd/ghostmcp.service /etc/systemd/system/
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now ghostmcp
+   ```
+
+### Docker
+```bash
+docker build -t ghostmcp .
+docker run -d \
+  --name ghostmcp \
+  -e GHOSTMCP_AUTH_MODE=token \
+  -e GHOSTMCP_AUTH_TOKEN=your-secret-token \
+  ghostmcp
+```
 
 ## Tool Types
 

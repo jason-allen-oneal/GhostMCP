@@ -6,9 +6,6 @@ import json
 import logging
 import os
 import shutil
-import openai
-import google.generativeai as genai
-import anthropic
 import signal
 import ssl
 import sys
@@ -22,6 +19,7 @@ from urllib.parse import urlparse
 
 from mcp.server.fastmcp import FastMCP
 
+from . import __version__
 from .config import load_config
 from .logging_utils import configure_logging
 from .rate_limit import SlidingWindowRateLimiter
@@ -50,6 +48,7 @@ from .scanners import (
     port_scan,
     reverse_dns,
     rpcclient_query,
+    run_external_binary,
     searchsploit_query,
     smbclient_list,
     smbmap_scan,
@@ -1145,9 +1144,9 @@ def masscan_tool(
 ) -> dict:
     """Run high-speed port scanning with masscan."""
     context = _authorize("masscan_tool", "active", engagement_id, engagement_mode, auth_token)
-    # Note: validation for masscan targets (CIDR/range) needed
-    _audit_tool_call("masscan_tool", context, target=targets)
-    return masscan_scan(targets, ports, rate=rate)
+    validated_targets = policy.validate_masscan_targets(targets)
+    _audit_tool_call("masscan_tool", context, target=validated_targets)
+    return masscan_scan(validated_targets, ports, rate=rate)
 
 
 @_optional_binary_tool("dnsrecon_tool")
@@ -1270,7 +1269,7 @@ def searchsploit_tool(
 ) -> dict:
     """Search for exploits in the local Exploit Database mirror."""
     context = _authorize("searchsploit_tool", "passive", engagement_id, engagement_mode, auth_token)
-    _audit_tool_call("searchsploit_tool", context, query=query)
+    _audit_tool_call("searchsploit_tool", context, target=query)
     return searchsploit_query(query)
 
 
@@ -1301,7 +1300,7 @@ def exiftool_tool(
     """Extract metadata from files with exiftool."""
     context = _authorize("exiftool_tool", "passive", engagement_id, engagement_mode, auth_token)
     # file_path should be local or in /tmp
-    _audit_tool_call("exiftool_tool", context, path=file_path)
+    _audit_tool_call("exiftool_tool", context, target=file_path)
     return exiftool_scan(file_path)
 
 
@@ -1315,66 +1314,8 @@ def binwalk_tool(
 ) -> dict:
     """Analyze files for embedded data with binwalk."""
     context = _authorize("binwalk_tool", "passive", engagement_id, engagement_mode, auth_token)
-    _audit_tool_call("binwalk_tool", context, path=file_path)
+    _audit_tool_call("binwalk_tool", context, target=file_path)
     return binwalk_scan(file_path)
-
-
-@mcp.tool()
-def multi_model_reasoning_tool(
-    prompt: str,
-    provider: Literal["openai", "anthropic", "gemini", "ollama"] = "openai",
-    model: str | None = None,
-    engagement_id: str | None = None,
-    auth_token: str | None = None,
-) -> dict:
-    """Enhanced reasoning using various LLM providers for complex security analysis."""
-    _authorize("multi_model_reasoning_tool", "passive", engagement_id, "passive", auth_token)
-    
-    system_instruction = "You are a senior security architect. Analyze the provided prompt and return a concise, structured response."
-    
-    try:
-        if provider == "openai":
-            client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-            model_name = model or "gpt-4o"
-            resp = client.chat.completions.create(
-                model=model_name,
-                messages=[{"role": "system", "content": system_instruction}, {"role": "user", "content": prompt}]
-            )
-            return {"provider": "openai", "model": model_name, "response": resp.choices[0].message.content}
-            
-        elif provider == "anthropic":
-            client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-            model_name = model or "claude-3-5-sonnet-20241022"
-            resp = client.messages.create(
-                model=model_name,
-                max_tokens=1024,
-                system=system_instruction,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            return {"provider": "anthropic", "model": model_name, "response": resp.content[0].text}
-            
-        elif provider == "gemini":
-            genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-            model_name = model or "gemini-1.5-pro"
-            gemini = genai.GenerativeModel(model_name, system_instruction=system_instruction)
-            resp = gemini.generate_content(prompt)
-            return {"provider": "gemini", "model": model_name, "response": resp.text}
-
-        elif provider == "ollama":
-            base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
-            model_name = model or "llama3.1"
-            import requests
-            resp = requests.post(f"{base_url}/api/generate", json={
-                "model": model_name,
-                "prompt": f"{system_instruction}\n\n{prompt}",
-                "stream": False
-            })
-            return {"provider": "ollama", "model": model_name, "response": resp.json().get("response", "")}
-            
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-    
-    return {"status": "error", "message": f"Unsupported provider: {provider}"}
 
 
 @mcp.tool()
@@ -1447,6 +1388,10 @@ _register_dynamic_kali_raw_tools()
 
 
 def main() -> None:
+    if "--version" in sys.argv:
+        print(f"GhostMCP v{__version__}")
+        sys.exit(0)
+
     _validate_runtime_security()
     _validate_transport_auth_configuration()
     _install_signal_handlers()

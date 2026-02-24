@@ -12,6 +12,7 @@ authors = [{ name = "GhostMCP" }]
 license = "MIT"
 dependencies = [
   "mcp>=1.2.0",
+  "defusedxml>=0.7.1",
 ]
 
 [project.optional-dependencies]

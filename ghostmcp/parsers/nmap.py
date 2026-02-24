@@ -1,20 +1,20 @@
-import xml.etree.ElementTree as ET
-import json
-from typing import Any, Dict
+from defusedxml import ElementTree as ET
+from typing import Any
 
-def parse_nmap_xml(xml_content: str) -> Dict[str, Any]:
+
+def parse_nmap_xml(xml_content: str) -> dict[str, Any]:
     """Parse Nmap XML output into a structured dictionary."""
     if not xml_content.strip():
         return {}
-    
+
     try:
         root = ET.fromstring(xml_content)
     except ET.ParseError:
         return {"error": "Invalid XML output from nmap"}
 
-    results = {
+    results: dict[str, Any] = {
         "summary": {},
-        "hosts": []
+        "hosts": [],
     }
 
     # Summary info
@@ -24,7 +24,7 @@ def parse_nmap_xml(xml_content: str) -> Dict[str, Any]:
         if finished is not None:
             results["summary"]["elapsed"] = finished.get("elapsed")
             results["summary"]["summary_text"] = finished.get("summary")
-        
+
         hosts_stats = runstats.find("hosts")
         if hosts_stats is not None:
             results["summary"]["up"] = hosts_stats.get("up")
@@ -32,12 +32,12 @@ def parse_nmap_xml(xml_content: str) -> Dict[str, Any]:
 
     # Host details
     for host in root.findall("host"):
-        host_data = {
+        host_data: dict[str, Any] = {
             "addresses": [],
             "hostnames": [],
-            "ports": []
+            "ports": [],
         }
-        
+
         # Status
         status = host.find("status")
         if status is not None:
@@ -63,15 +63,15 @@ def parse_nmap_xml(xml_content: str) -> Dict[str, Any]:
         ports_node = host.find("ports")
         if ports_node is not None:
             for port in ports_node.findall("port"):
-                port_info = {
+                port_info: dict[str, Any] = {
                     "id": port.get("portid"),
-                    "protocol": port.get("protocol")
+                    "protocol": port.get("protocol"),
                 }
-                
+
                 state = port.find("state")
                 if state is not None:
                     port_info["state"] = state.get("state")
-                
+
                 service = port.find("service")
                 if service is not None:
                     port_info["service"] = {
@@ -80,7 +80,7 @@ def parse_nmap_xml(xml_content: str) -> Dict[str, Any]:
                         "version": service.get("version"),
                         "extrainfo": service.get("extrainfo")
                     }
-                
+
                 host_data["ports"].append(port_info)
 
         results["hosts"].append(host_data)

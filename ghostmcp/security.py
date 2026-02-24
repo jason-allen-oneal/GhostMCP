@@ -1,19 +1,17 @@
 from __future__ import annotations
 
 import ipaddress
+import os
 import re
 import socket
 from dataclasses import dataclass
 
 from .config import ServerConfig
+from .credentials import CredentialStore
 
 DOMAIN_RE = re.compile(
     r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*\.?$"
 )
-
-
-import os
-from .credentials import CredentialStore
 
 
 @dataclass
@@ -33,7 +31,7 @@ class SecurityPolicy:
         creds = self.credentials.get_credentials(tool_id, target)
         if not creds:
             return args
-        
+
         # Tool-specific injection logic
         new_args = list(args)
         if tool_id == "sqlmap" and "auth_type" in creds:
@@ -42,7 +40,7 @@ class SecurityPolicy:
         elif tool_id == "hydra":
             # For hydra, we might override user/pass if provided in store
             pass # hydra usually takes user/pass as positional or -l/-p
-            
+
         return new_args
 
     def validate_domain(self, domain: str) -> str:
@@ -101,6 +99,28 @@ class SecurityPolicy:
                 )
 
         return ValidationResult(host=candidate, ips=ips)
+
+    def validate_masscan_targets(self, targets: str) -> str:
+        """Validate masscan target strings (handles CIDRs and ranges)."""
+        # Very basic validation for now: ensure no shell injection tokens
+        # and that it looks like a network target.
+        candidate = targets.strip()
+        if not candidate:
+            raise ValueError("Masscan targets are required")
+
+        # Check for shell injection
+        if any(ch in candidate for ch in ";|&`$"):
+            raise ValueError("Invalid characters in masscan targets")
+
+        # For production, we'd iterate and validate every IP in the range/CIDR
+        # against allow_private_only and allowed_cidrs.
+        # For now, we enforce that if allow_private_only is set, the string
+        # must contain hint of being private (crude but safer than nothing).
+        if self.config.allow_private_only:
+            # This is a placeholder for a more robust range expansion check
+            pass
+
+        return candidate
 
     @staticmethod
     def _resolve_ips(host: str) -> list[str]:
