@@ -9,7 +9,10 @@ description = "Production-ready cybersecurity tooling MCP server for AI agents"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "GhostMCP" }]
-license = "MIT"
+license = { text = "AGPL-3.0-or-later" }
+classifiers = [
+  "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+]
 dependencies = [
   "mcp>=1.2.0",
   "defusedxml>=0.7.1",

@@ -2,6 +2,7 @@
 [![CI](https://github.com/jason-allen-oneal/ghostmcp/actions/workflows/ci.yml/badge.svg)](https://github.com/jason-allen-oneal/ghostmcp/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/jason-allen-oneal/ghostmcp/actions/workflows/codeql.yml/badge.svg)](https://github.com/jason-allen-oneal/ghostmcp/actions/workflows/codeql.yml)
 [![Dependabot Updates](https://github.com/jason-allen-oneal/ghostmcp/actions/workflows/dependabot/dependabot-updates/badge.svg)](https://github.com/jason-allen-oneal/ghostmcp/actions/workflows/dependabot/dependabot-updates)
+[![License](https://img.shields.io/badge/license-AGPLv3-blue.svg)](LICENSE)
 
 GhostMCP is a production-oriented MCP server for authorized red-team and security operations.
 
@@ -225,3 +226,6 @@ GitHub workflows included:
 
 ## Legal
 Use GhostMCP only on systems and networks you are explicitly authorized to assess.
+
+## License
+Licensed under the GNU Affero General Public License v3.0 or later (AGPL-3.0-or-later). See [LICENSE](LICENSE).
