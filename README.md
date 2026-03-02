@@ -1,8 +1,12 @@
 # GhostMCP
-[![CI](https://github.com/jason-allen-oneal/ghostmcp/actions/workflows/ci.yml/badge.svg)](https://github.com/jason-allen-oneal/ghostmcp/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/jason-allen-oneal/ghostmcp/actions/workflows/codeql.yml/badge.svg)](https://github.com/jason-allen-oneal/ghostmcp/actions/workflows/codeql.yml)
-[![Dependabot Updates](https://github.com/jason-allen-oneal/ghostmcp/actions/workflows/dependabot/dependabot-updates/badge.svg)](https://github.com/jason-allen-oneal/ghostmcp/actions/workflows/dependabot/dependabot-updates)
-[![License](https://img.shields.io/badge/license-AGPLv3-blue.svg)](LICENSE)
+
+[![CI](https://github.com/jason-allen-oneal/GhostMCP/actions/workflows/ci.yml/badge.svg)](https://github.com/jason-allen-oneal/GhostMCP/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/jason-allen-oneal/GhostMCP/actions/workflows/codeql.yml/badge.svg)](https://github.com/jason-allen-oneal/GhostMCP/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/jason-allen-oneal/GhostMCP/badge)](https://securityscorecards.dev/viewer/?uri=github.com/jason-allen-oneal/GhostMCP)
+[![Dependabot Updates](https://github.com/jason-allen-oneal/GhostMCP/actions/workflows/dependabot/dependabot-updates/badge.svg)](https://github.com/jason-allen-oneal/GhostMCP/actions/workflows/dependabot/dependabot-updates)
+[![License](https://img.shields.io/github/license/jason-allen-oneal/GhostMCP)](https://github.com/jason-allen-oneal/GhostMCP/blob/main/LICENSE)
+[![Security Policy](https://img.shields.io/badge/security-policy-blue)](https://github.com/jason-allen-oneal/GhostMCP/blob/main/SECURITY.md)
+[![Contributing](https://img.shields.io/badge/contributing-guidelines-blue)](https://github.com/jason-allen-oneal/GhostMCP/blob/main/CONTRIBUTING.md)
 
 GhostMCP is a production-oriented MCP server for authorized red-team and security operations.
 
