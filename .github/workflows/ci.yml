@@ -28,7 +28,6 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
           # Install pinned third-party deps (with hashes), then install the project without deps.
           pip install --require-hashes -r requirements-dev.lock.txt
           pip install -e . --no-deps
