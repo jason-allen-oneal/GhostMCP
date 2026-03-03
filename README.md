@@ -1,7 +1,3 @@
-<p align="center">
-<img src="docs/images/banner.png" />
-</p>
-
 # GhostMCP
 
 [![CI](https://github.com/jason-allen-oneal/GhostMCP/actions/workflows/ci.yml/badge.svg)](https://github.com/jason-allen-oneal/GhostMCP/actions/workflows/ci.yml)
@@ -21,6 +17,10 @@ It provides:
 - Lightweight policy controls and audit chaining
 - Transport/auth policy for non-local gateway mode
 - Runtime metrics, health probes, and SIEM audit export
+
+## Documentation
+- docs/README.md
+- docs/RUNBOOK.md
 
 ## Remote Transport Security
 GhostMCP supports a `streamable-http` transport via `GHOSTMCP_TRANSPORT_MODE=remote_gateway`. This allows the server to run on a separate host from the LLM client.
@@ -48,7 +48,7 @@ GhostMCP supports a `streamable-http` transport via `GHOSTMCP_TRANSPORT_MODE=rem
 
 ### Docker
 ```bash
-docker build -t ghostmcp .
+docker build -f deploy/container/Dockerfile -t ghostmcp .
 docker run -d \
   --name ghostmcp \
   -e GHOSTMCP_AUTH_MODE=token \
