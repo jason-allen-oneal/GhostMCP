@@ -19,8 +19,8 @@ It provides:
 - Runtime metrics, health probes, and SIEM audit export
 
 ## Documentation
-- docs/README.md
-- docs/RUNBOOK.md
+- [docs/README.md](docs/README.md)
+- [docs/RUNBOOK.md](docs/RUNBOOK.md)
 
 ## Remote Transport Security
 GhostMCP supports a `streamable-http` transport via `GHOSTMCP_TRANSPORT_MODE=remote_gateway`. This allows the server to run on a separate host from the LLM client.
