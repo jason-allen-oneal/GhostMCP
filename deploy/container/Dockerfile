@@ -1,13 +1,18 @@
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:a922320ae2598dfbb2f1db10aaebf3ac32f2245bdc439f0c1017234bfc01104d
 
-RUN useradd -m -u 10001 ghostmcp
 WORKDIR /app
 
-COPY pyproject.toml README.md /app/
+ENV PYTHONUNBUFFERED=1 \
+  PYTHONDONTWRITEBYTECODE=1 \
+  PYTHONPATH=/app
+
+# Install locked dependencies with hashes.
+COPY requirements.lock.txt /app/requirements.lock.txt
+RUN python -m pip install --no-cache-dir --require-hashes -r /app/requirements.lock.txt
+
+# Copy app source (run from source, do not pip-install the project).
 COPY ghostmcp /app/ghostmcp
 
-RUN pip install --no-cache-dir .
+EXPOSE 8766
 
-USER 10001
-ENV GHOSTMCP_ALLOW_RUN_AS_ROOT=false
-ENTRYPOINT ["ghostmcp"]
+ENTRYPOINT ["python", "-m", "ghostmcp"]
