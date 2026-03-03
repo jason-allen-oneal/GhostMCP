@@ -1,7 +1,3 @@
-<p align="center">
-<img src="docs/images/banner.png" width="700" alt="GhostMCP banner" />
-</p>
-
 # GhostMCP
 
 [![CI](https://github.com/jason-allen-oneal/GhostMCP/actions/workflows/ci.yml/badge.svg)](https://github.com/jason-allen-oneal/GhostMCP/actions/workflows/ci.yml)
