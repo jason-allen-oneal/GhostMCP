@@ -51,6 +51,17 @@ class ServerControlTests(unittest.TestCase):
                             auth_token="wrong",
                         )
 
+    def test_authorize_accepts_default_engagement_mode_alias(self) -> None:
+        with patch("ghostmcp.server.rate_limiter.allow", return_value=True):
+            context = server._authorize(
+                "runtime_probe_tool",
+                "passive",
+                engagement_id=None,
+                engagement_mode="default",
+            )
+        self.assertEqual(context["engagement_mode"], "passive")
+        self.assertEqual(context["tool_level"], "passive")
+
 
 if __name__ == "__main__":
     unittest.main()

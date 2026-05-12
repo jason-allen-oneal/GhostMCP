@@ -510,6 +510,13 @@ def _enforce_budget() -> None:
         raise RuntimeError("Rate limit exceeded. Retry later.")
 
 
+def _normalize_tool_level(level: str) -> str:
+    normalized = level.strip().lower()
+    if not normalized or normalized == "default":
+        return "passive"
+    return normalized
+
+
 def _authorize(
     tool_name: str,
     tool_level: Literal["passive", "active", "intrusive"],
@@ -518,6 +525,9 @@ def _authorize(
     auth_token: str | None = None,
 ) -> dict:
     _enforce_budget()
+
+    tool_level = _normalize_tool_level(tool_level)
+    engagement_mode = _normalize_tool_level(engagement_mode)
 
     if cfg.require_engagement_context and not engagement_id:
         _record_call_denied(tool_name)
