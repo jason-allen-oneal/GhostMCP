@@ -14,7 +14,7 @@ import time
 from datetime import UTC, datetime
 from functools import wraps
 from pathlib import Path
-from typing import Any, Literal, get_type_hints
+from typing import Any, Literal, cast, get_type_hints
 from urllib.parse import urlparse
 
 from mcp.server.fastmcp import FastMCP
@@ -92,6 +92,8 @@ mcp = FastMCP(
     ),
 )
 
+ToolLevel = Literal["passive", "active", "intrusive"]
+EngagementMode = Literal["default", "passive", "active", "intrusive"]
 TOOL_LEVELS = {"passive": 1, "active": 2, "intrusive": 3}
 _audit_lock = threading.Lock()
 _last_audit_hash = "0" * 64
@@ -348,7 +350,7 @@ def _record_call_result(
             tool_metrics["timeouts"] += 1
 
 
-def _instrument_tool(tool_name: str, tool_level: Literal["passive", "active", "intrusive"]):
+def _instrument_tool(tool_name: str, tool_level: ToolLevel):
     def decorator(fn):
         fn_signature = inspect.signature(fn)
         resolved_hints = get_type_hints(fn, globalns=fn.__globals__, include_extras=True)
@@ -451,7 +453,7 @@ def _register_dynamic_kali_raw_tools() -> None:
                 args: list[str] | None = None,
                 timeout_s: float = 120.0,
                 engagement_id: str | None = None,
-                engagement_mode: Literal["passive", "active", "intrusive"] = "intrusive",
+                engagement_mode: EngagementMode = "intrusive",
                 auth_token: str | None = None,
             ) -> dict:
                 context = _authorize(
@@ -510,24 +512,26 @@ def _enforce_budget() -> None:
         raise RuntimeError("Rate limit exceeded. Retry later.")
 
 
-def _normalize_tool_level(level: str) -> str:
+def _normalize_tool_level(level: str) -> ToolLevel:
     normalized = level.strip().lower()
     if not normalized or normalized == "default":
         return "passive"
-    return normalized
+    if normalized not in TOOL_LEVELS:
+        raise ValueError(f"Unsupported engagement mode/tool level: {level}")
+    return cast(ToolLevel, normalized)
 
 
 def _authorize(
     tool_name: str,
-    tool_level: Literal["passive", "active", "intrusive"],
+    tool_level: ToolLevel,
     engagement_id: str | None,
-    engagement_mode: Literal["passive", "active", "intrusive"],
+    engagement_mode: EngagementMode,
     auth_token: str | None = None,
 ) -> dict:
     _enforce_budget()
 
-    tool_level = _normalize_tool_level(tool_level)
-    engagement_mode = _normalize_tool_level(engagement_mode)
+    normalized_tool_level = _normalize_tool_level(tool_level)
+    normalized_engagement_mode = _normalize_tool_level(engagement_mode)
 
     if cfg.require_engagement_context and not engagement_id:
         _record_call_denied(tool_name)
@@ -540,21 +544,21 @@ def _authorize(
     configured_max = cfg.max_tool_level
     if configured_max not in TOOL_LEVELS:
         configured_max = "intrusive"
-    if TOOL_LEVELS[tool_level] > TOOL_LEVELS[configured_max]:
+    if TOOL_LEVELS[normalized_tool_level] > TOOL_LEVELS[configured_max]:
         _record_call_denied(tool_name)
         raise ValueError(
-            f"Tool level '{tool_level}' exceeds configured max '{configured_max}'"
+            f"Tool level '{normalized_tool_level}' exceeds configured max '{configured_max}'"
         )
-    if TOOL_LEVELS[tool_level] > TOOL_LEVELS[engagement_mode]:
+    if TOOL_LEVELS[normalized_tool_level] > TOOL_LEVELS[normalized_engagement_mode]:
         _record_call_denied(tool_name)
         raise ValueError(
-            f"Tool level '{tool_level}' exceeds engagement mode '{engagement_mode}'"
+            f"Tool level '{normalized_tool_level}' exceeds engagement mode '{normalized_engagement_mode}'"
         )
 
     return {
         "engagement_id": engagement_id or "unspecified",
-        "engagement_mode": engagement_mode,
-        "tool_level": tool_level,
+        "engagement_mode": normalized_engagement_mode,
+        "tool_level": normalized_tool_level,
     }
 
 
@@ -609,7 +613,7 @@ def dns_lookup_tool(
     domain: str,
     record_type: Literal["A"] = "A",
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "passive",
+    engagement_mode: EngagementMode = "passive",
     auth_token: str | None = None,
 ) -> dict:
     """Resolve DNS records for a domain (currently supports A records only)."""
@@ -628,7 +632,7 @@ def dns_lookup_tool(
 def reverse_dns_tool(
     ip: str,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "passive",
+    engagement_mode: EngagementMode = "passive",
     auth_token: str | None = None,
 ) -> dict:
     """Perform reverse DNS lookup for an IPv4 or IPv6 address."""
@@ -646,7 +650,7 @@ def reverse_dns_tool(
 def whois_tool(
     target: str,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "passive",
+    engagement_mode: EngagementMode = "passive",
     auth_token: str | None = None,
 ) -> dict:
     """Query WHOIS information for a domain or IP."""
@@ -669,7 +673,7 @@ def whois_tool(
 def http_probe_tool(
     url: str,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "active",
+    engagement_mode: EngagementMode = "active",
     auth_token: str | None = None,
 ) -> dict:
     """Probe HTTP(S) endpoint and return status, latency, and key security headers."""
@@ -689,7 +693,7 @@ def tls_certificate_tool(
     host: str,
     port: int = 443,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "active",
+    engagement_mode: EngagementMode = "active",
     auth_token: str | None = None,
 ) -> dict:
     """Fetch and summarize the peer TLS certificate for host:port."""
@@ -709,7 +713,7 @@ def tls_certificate_expiry_tool(
     host: str,
     port: int = 443,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "active",
+    engagement_mode: EngagementMode = "active",
     auth_token: str | None = None,
 ) -> dict:
     """Return TLS certificate expiration status and days remaining."""
@@ -738,7 +742,7 @@ def tcp_port_scan_tool(
     host: str,
     ports: list[int],
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "intrusive",
+    engagement_mode: EngagementMode = "intrusive",
     auth_token: str | None = None,
 ) -> dict:
     """Scan selected TCP ports with policy controls and connection timeouts."""
@@ -768,7 +772,7 @@ def tcp_port_scan_tool(
 def security_txt_tool(
     domain: str,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "passive",
+    engagement_mode: EngagementMode = "passive",
     auth_token: str | None = None,
 ) -> dict:
     """Fetch and parse /.well-known/security.txt for a domain."""
@@ -787,7 +791,7 @@ def security_txt_tool(
 def ioc_extract_tool(
     text: str,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "passive",
+    engagement_mode: EngagementMode = "passive",
     auth_token: str | None = None,
 ) -> dict:
     """Extract URLs, domains, IPs, and common hash IOCs from free text."""
@@ -810,7 +814,7 @@ def ioc_extract_tool(
 def url_risk_score_tool(
     url: str,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "passive",
+    engagement_mode: EngagementMode = "passive",
     auth_token: str | None = None,
 ) -> dict:
     """Return a heuristic risk score for a URL."""
@@ -830,7 +834,7 @@ def subdomain_candidates_tool(
     domain: str,
     words: list[str] | None = None,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "passive",
+    engagement_mode: EngagementMode = "passive",
     auth_token: str | None = None,
 ) -> dict:
     """Generate likely subdomain candidates for recon planning."""
@@ -849,7 +853,7 @@ def common_web_paths_tool(
     base_url: str,
     profile: Literal["light", "standard"] = "light",
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "passive",
+    engagement_mode: EngagementMode = "passive",
     auth_token: str | None = None,
 ) -> dict:
     """Generate common web paths/endpoints for authorized recon planning."""
@@ -869,7 +873,7 @@ def nmap_service_scan_tool(
     ports: list[int] | None = None,
     top_ports: int = 100,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "intrusive",
+    engagement_mode: EngagementMode = "intrusive",
     auth_token: str | None = None,
 ) -> dict:
     """Run nmap -sV service scan using explicit ports or top ports."""
@@ -891,7 +895,7 @@ def nmap_service_scan_tool(
 def whatweb_tool(
     url: str,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "active",
+    engagement_mode: EngagementMode = "active",
     auth_token: str | None = None,
 ) -> dict:
     """Run whatweb against a target URL."""
@@ -906,7 +910,7 @@ def whatweb_tool(
 def nikto_tool(
     url: str,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "intrusive",
+    engagement_mode: EngagementMode = "intrusive",
     auth_token: str | None = None,
 ) -> dict:
     """Run nikto web scan against a target URL."""
@@ -921,7 +925,7 @@ def nikto_tool(
 def amass_passive_tool(
     domain: str,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "passive",
+    engagement_mode: EngagementMode = "passive",
     auth_token: str | None = None,
 ) -> dict:
     """Run passive subdomain enumeration with amass."""
@@ -940,7 +944,7 @@ def gobuster_dir_tool(
     wordlist: str = "/usr/share/wordlists/dirb/common.txt",
     threads: int = 20,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "intrusive",
+    engagement_mode: EngagementMode = "intrusive",
     auth_token: str | None = None,
 ) -> dict:
     """Run gobuster directory enumeration for a target URL."""
@@ -958,7 +962,7 @@ def sslscan_tool(
     host: str,
     port: int = 443,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "active",
+    engagement_mode: EngagementMode = "active",
     auth_token: str | None = None,
 ) -> dict:
     """Run sslscan against host:port."""
@@ -973,7 +977,7 @@ def sslscan_tool(
 def wafw00f_tool(
     url: str,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "active",
+    engagement_mode: EngagementMode = "active",
     auth_token: str | None = None,
 ) -> dict:
     """Run wafw00f to detect WAF technologies on a target URL."""
@@ -987,7 +991,7 @@ def wafw00f_tool(
 @_instrument_tool("toolchain_status_tool", "passive")
 def toolchain_status_tool(
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "passive",
+    engagement_mode: EngagementMode = "passive",
     auth_token: str | None = None,
 ) -> dict:
     """Return Kali toolchain availability and enabled binary MCP tools."""
@@ -1026,7 +1030,7 @@ def toolchain_status_tool(
 @_instrument_tool("metrics_tool", "passive")
 def metrics_tool(
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "passive",
+    engagement_mode: EngagementMode = "passive",
     auth_token: str | None = None,
 ) -> dict:
     """Return runtime metrics for tool calls."""
@@ -1045,7 +1049,7 @@ def metrics_tool(
 @mcp.tool()
 def verify_audit_log_integrity_tool(
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "passive",
+    engagement_mode: EngagementMode = "passive",
     auth_token: str | None = None,
 ) -> dict:
     """Validate the integrity of the audit log hash chain."""
@@ -1064,7 +1068,7 @@ def sqlmap_tool(
     url: str,
     args: list[str] | None = None,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "intrusive",
+    engagement_mode: EngagementMode = "intrusive",
     auth_token: str | None = None,
 ) -> dict:
     """Run automated SQL injection tests using sqlmap."""
@@ -1083,7 +1087,7 @@ def hydra_tool(
     user: str,
     wordlist: str,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "intrusive",
+    engagement_mode: EngagementMode = "intrusive",
     auth_token: str | None = None,
 ) -> dict:
     """Run password brute-force tests using hydra."""
@@ -1098,7 +1102,7 @@ def hydra_tool(
 def enum4linux_ng_tool(
     host: str,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "active",
+    engagement_mode: EngagementMode = "active",
     auth_token: str | None = None,
 ) -> dict:
     """Run SMB/Windows enumeration using enum4linux-ng."""
@@ -1115,7 +1119,7 @@ def crackmapexec_tool(
     target: str,
     args: list[str] | None = None,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "active",
+    engagement_mode: EngagementMode = "active",
     auth_token: str | None = None,
 ) -> dict:
     """Run network service assessment using crackmapexec."""
@@ -1132,7 +1136,7 @@ def theharvester_tool(
     domain: str,
     source: str = "google",
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "passive",
+    engagement_mode: EngagementMode = "passive",
     auth_token: str | None = None,
 ) -> dict:
     """Run OSINT gathering with theHarvester."""
@@ -1149,7 +1153,7 @@ def masscan_tool(
     ports: str,
     rate: int = 1000,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "active",
+    engagement_mode: EngagementMode = "active",
     auth_token: str | None = None,
 ) -> dict:
     """Run high-speed port scanning with masscan."""
@@ -1165,7 +1169,7 @@ def dnsrecon_tool(
     domain: str,
     scan_type: str = "std",
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "active",
+    engagement_mode: EngagementMode = "active",
     auth_token: str | None = None,
 ) -> dict:
     """Run DNS enumeration with dnsrecon."""
@@ -1181,7 +1185,7 @@ def wpscan_tool(
     url: str,
     args: list[str] | None = None,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "intrusive",
+    engagement_mode: EngagementMode = "intrusive",
     auth_token: str | None = None,
 ) -> dict:
     """Run WordPress vulnerability scanning with wpscan."""
@@ -1197,7 +1201,7 @@ def dirsearch_tool(
     url: str,
     args: list[str] | None = None,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "intrusive",
+    engagement_mode: EngagementMode = "intrusive",
     auth_token: str | None = None,
 ) -> dict:
     """Run directory brute-forcing with dirsearch."""
@@ -1212,7 +1216,7 @@ def dirsearch_tool(
 def sslyze_tool(
     target: str,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "active",
+    engagement_mode: EngagementMode = "active",
     auth_token: str | None = None,
 ) -> dict:
     """Run advanced SSL/TLS analysis with sslyze."""
@@ -1228,7 +1232,7 @@ def smbmap_tool(
     host: str,
     args: list[str] | None = None,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "active",
+    engagement_mode: EngagementMode = "active",
     auth_token: str | None = None,
 ) -> dict:
     """Run SMB share enumeration with smbmap."""
@@ -1243,7 +1247,7 @@ def smbmap_tool(
 def smbclient_tool(
     host: str,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "active",
+    engagement_mode: EngagementMode = "active",
     auth_token: str | None = None,
 ) -> dict:
     """List SMB shares with smbclient."""
@@ -1259,7 +1263,7 @@ def rpcclient_tool(
     host: str,
     command: str = "enumdomusers",
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "active",
+    engagement_mode: EngagementMode = "active",
     auth_token: str | None = None,
 ) -> dict:
     """Query MSRPC endpoints with rpcclient."""
@@ -1274,7 +1278,7 @@ def rpcclient_tool(
 def searchsploit_tool(
     query: str,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "passive",
+    engagement_mode: EngagementMode = "passive",
     auth_token: str | None = None,
 ) -> dict:
     """Search for exploits in the local Exploit Database mirror."""
@@ -1289,7 +1293,7 @@ def nuclei_tool(
     target: str,
     templates: str | None = None,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "intrusive",
+    engagement_mode: EngagementMode = "intrusive",
     auth_token: str | None = None,
 ) -> dict:
     """Run vulnerability scanning with nuclei templates."""
@@ -1304,7 +1308,7 @@ def nuclei_tool(
 def exiftool_tool(
     file_path: str,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "passive",
+    engagement_mode: EngagementMode = "passive",
     auth_token: str | None = None,
 ) -> dict:
     """Extract metadata from files with exiftool."""
@@ -1319,7 +1323,7 @@ def exiftool_tool(
 def binwalk_tool(
     file_path: str,
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "passive",
+    engagement_mode: EngagementMode = "passive",
     auth_token: str | None = None,
 ) -> dict:
     """Analyze files for embedded data with binwalk."""
@@ -1332,7 +1336,7 @@ def binwalk_tool(
 @_instrument_tool("runtime_probe_tool", "passive")
 def runtime_probe_tool(
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "passive",
+    engagement_mode: EngagementMode = "passive",
     auth_token: str | None = None,
 ) -> dict:
     """Runtime health probe for orchestration and readiness checks."""
@@ -1354,7 +1358,7 @@ def runtime_probe_tool(
 @_instrument_tool("server_health_tool", "passive")
 def server_health_tool(
     engagement_id: str | None = None,
-    engagement_mode: Literal["passive", "active", "intrusive"] = "passive",
+    engagement_mode: EngagementMode = "passive",
     auth_token: str | None = None,
 ) -> dict:
     """Return server health and policy configuration snapshot."""

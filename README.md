@@ -163,7 +163,7 @@ This runs in the foreground over stdio (blocks the terminal). Use `Ctrl+C` to st
 ## Engagement Model
 Most tools accept:
 - `engagement_id` (optional unless required by policy)
-- `engagement_mode` (`passive`, `active`, `intrusive`)
+- `engagement_mode` (`default`, `passive`, `active`, `intrusive`); `default` is accepted as an alias for `passive`
 - `auth_token` (required for `remote_gateway` + `token` auth mode)
 
 Authorization checks enforce:

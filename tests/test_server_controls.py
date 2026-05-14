@@ -1,6 +1,7 @@
 import sys
 import types
 import unittest
+from typing import get_args, get_type_hints
 from unittest.mock import patch
 
 if "mcp.server.fastmcp" not in sys.modules:
@@ -61,6 +62,18 @@ class ServerControlTests(unittest.TestCase):
             )
         self.assertEqual(context["engagement_mode"], "passive")
         self.assertEqual(context["tool_level"], "passive")
+
+    def test_runtime_probe_accepts_default_engagement_mode_alias(self) -> None:
+        with patch("ghostmcp.server.rate_limiter.allow", return_value=True):
+            payload = server.runtime_probe_tool(engagement_mode="default")
+        self.assertIn(payload["status"], {"ready", "stopping"})
+
+    def test_runtime_probe_type_hints_advertise_default_engagement_mode_alias(self) -> None:
+        engagement_mode_hint = get_type_hints(server.runtime_probe_tool)["engagement_mode"]
+        self.assertEqual(
+            get_args(engagement_mode_hint),
+            ("default", "passive", "active", "intrusive"),
+        )
 
 
 if __name__ == "__main__":
