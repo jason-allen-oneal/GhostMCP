@@ -222,7 +222,7 @@ class _PlainCredentialStore:
     def _load(self):
         if os.path.exists(self.store_path):
             try:
-                with open(self.store_path, "r") as f:
+                with open(self.store_path) as f:
                     self._cache = json.load(f)
             except Exception:  # nosec B110 - corrupted or missing store
                 self._cache = {}
