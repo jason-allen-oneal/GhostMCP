@@ -12,13 +12,13 @@
 [![Security Policy](https://img.shields.io/badge/security-policy-blue)](https://github.com/jason-allen-oneal/GhostMCP/blob/main/SECURITY.md)
 [![Contributing](https://img.shields.io/badge/contributing-guidelines-blue)](https://github.com/jason-allen-oneal/GhostMCP/blob/main/CONTRIBUTING.md)
 
-**40+ security tools** — production-oriented MCP server for authorized red-team and security operations.
+**128+ security tools** — production-oriented MCP server for authorized red-team and security operations.
 
 GhostMCP provides a comprehensive toolkit for authorized security assessments:
 
 - **16 core tools** — DNS, WHOIS, HTTP, TLS, port scanning, IOC extraction, risk scoring, recon generators
-- **23 curated binary-backed tools** — nmap, whatweb, nikto, amass, gobuster, nuclei, ffuf, feroxbuster, wfuzz, subfinder, assetfinder, dnsx, gowitness, jaeles, cloudflair, s3scanner, trufflehog, gitleaks, sqlmap, sslscan, wafw00f, wpscan, hydra (auto-discovered at startup)
-- **67+ raw binary tools** — any Kali tool on `PATH` exposed as `<binary>_raw_tool`
+- **36 curated binary-backed tools** — nmap, whatweb, nikto, amass, gobuster, nuclei, ffuf, feroxbuster, wfuzz, subfinder, assetfinder, dnsx, gowitness, jaeles, cloudflair, s3scanner, trufflehog, gitleaks, sqlmap, hydra, sslscan, wafw00f, wpscan, enum4linux-ng, crackmapexec, smbmap, smbclient, rpcclient, theharvester, masscan, dnsrecon, dirsearch, sslyze, searchsploit, exiftool, binwalk (auto-discovered at startup)
+- **76 raw binary tools** — any Kali tool on `PATH` exposed as `<binary>_raw_tool`
 - **Engagement context** — `engagement_id`, `engagement_mode` (`default|passive|active|intrusive`)
 - **Policy controls** — CIDR/domain allowlists, port blocking, rate limits, tool-level ceilings
 - **Proxy/Tor** — `GHOSTMCP_PROXY_MODE=tor|proxychains|torsocks` for all outbound traffic
@@ -97,7 +97,7 @@ ghostmcp-dashboard
 - `runtime_probe_tool` — Readiness/liveness probe
 - `server_health_tool` — Policy/config snapshot + toolchain summary
 
-### 2) Curated binary-backed tools (23, enabled when installed)
+### 2) Curated binary-backed tools (36, enabled when installed)
 **Recon & Discovery**
 - `nmap_service_scan_tool` — Service version detection
 - `whatweb_tool` — Web technology fingerprinting
@@ -107,6 +107,9 @@ ghostmcp-dashboard
 - `assetfinder_tool` — Asset discovery
 - `dnsx_tool` — Fast DNS probing
 - `gowitness_tool` — Web screenshots & metadata
+- `theharvester_tool` — OSINT gathering
+- `masscan_tool` — High-speed port scanning
+- `dnsrecon_tool` — DNS enumeration
 
 **Vulnerability Scanning**
 - `nuclei_tool` — Template-based vuln scanning
@@ -114,12 +117,15 @@ ghostmcp-dashboard
 - `sqlmap_tool` — SQL injection testing
 - `wpscan_tool` — WordPress vulnerability scanning
 - `wafw00f_tool` — WAF detection
+- `sslyze_tool` — Advanced SSL/TLS analysis
+- `searchsploit_tool` — ExploitDB search
 
 **Directory & Content Discovery**
 - `gobuster_dir_tool` — Directory enumeration
 - `ffuf_tool` — Fast web fuzzer
 - `feroxbuster_tool` — Fast recursive content discovery
 - `wfuzz_tool` — Web application fuzzer
+- `dirsearch_tool` — Directory brute-forcing
 
 **Cloud & Secret Scanning**
 - `cloudflair_tool` — Cloudflare origin IP detection
@@ -127,12 +133,22 @@ ghostmcp-dashboard
 - `trufflehog_tool` — Secret scanning (filesystem)
 - `gitleaks_tool` — Secret scanning (git repos)
 
+**Network & Auth**
+- `hydra_tool` — Password brute-forcing
+- `enum4linux_ng_tool` — SMB/Windows enumeration
+- `crackmapexec_tool` — SMB/AD assessment
+- `smbmap_tool` — SMB share enumeration
+- `smbclient_tool` — SMB session listing
+- `rpcclient_tool` — MSRPC enumeration
+
 **Crypto & TLS**
 - `sslscan_tool` — SSL/TLS configuration scanner
+- `exiftool_tool` — File metadata extraction
+- `binwalk_tool` — Firmware/binary analysis
 
-### 3) Generated raw binary tools (67+, pattern: `<binary>_raw_tool`)
+### 3) Generated raw binary tools (76+, pattern: `<binary>_raw_tool`)
 Any Kali tool on `PATH` auto-registered. Example: `testssl.sh` → `testssl_sh_raw_tool`.
-Full list includes: masscan, dnsrecon, dnsenum, fierce, theharvester, recon-ng, dirsearch, hydra, enum4linux-ng, crackmapexec, smbclient, smbmap, rpcclient, searchsploit, exiftool, binwalk, and 40+ more.
+Full list includes: masscan, dnsrecon, dnsenum, fierce, theharvester, recon-ng, dirsearch, hydra, enum4linux-ng, crackmapexec, smbclient, smbmap, rpcclient, searchsploit, exiftool, binwalk, and 60+ more.
 
 ### 4) Proxy/Tor Mode (NEW)
 ```bash
