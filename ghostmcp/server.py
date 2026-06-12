@@ -27,20 +27,28 @@ from .scanners import (
     ScannerError,
     ScannerTimeoutError,
     amass_passive_enum,
+    assetfinder_scan,
     binwalk_scan,
+    cloudflair_scan,
     crackmapexec_scan,
     dirsearch_scan,
     dns_lookup,
     dnsrecon_scan,
+    dnsx_scan,
     enum4linux_ng_scan,
     exiftool_scan,
     extract_iocs,
+    feroxbuster_scan,
     fetch_security_txt,
+    ffuf_scan,
     generate_common_web_paths,
     generate_subdomain_candidates,
+    gitleaks_scan,
     gobuster_dir_scan,
+    gowitness_scan,
     http_probe,
     hydra_scan,
+    jaeles_scan,
     masscan_scan,
     nikto_scan,
     nmap_service_scan,
@@ -49,19 +57,23 @@ from .scanners import (
     reverse_dns,
     rpcclient_query,
     run_external_binary,
+    s3scanner_scan,
     searchsploit_query,
     smbclient_list,
     smbmap_scan,
     sqlmap_scan,
     sslscan_target,
     sslyze_scan,
+    subfinder_scan,
     terminate_active_processes,
     theharvester_scan,
     tls_certificate,
     tls_certificate_expiry,
+    trufflehog_scan,
     url_risk_score,
     verify_audit_log_integrity,
     wafw00f_scan,
+    wfuzz_scan,
     whatweb_scan,
     whois_query,
     wpscan_scan,
@@ -207,6 +219,12 @@ KALI_COMMON_TOOL_BINARIES = [
     "evil-winrm",
     "bloodhound-python",
     "neo4j",
+    "gowitness",
+    "jaeles",
+    "cloudflair",
+    "s3scanner",
+    "trufflehog",
+    "gitleaks",
 ]
 
 SUPPORTED_EXTERNAL_TOOL_BINARIES = {
@@ -234,6 +252,18 @@ SUPPORTED_EXTERNAL_TOOL_BINARIES = {
     "nuclei_tool": "nuclei",
     "exiftool_tool": "exiftool",
     "binwalk_tool": "binwalk",
+    "ffuf_tool": "ffuf",
+    "feroxbuster_tool": "feroxbuster",
+    "wfuzz_tool": "wfuzz",
+    "subfinder_tool": "subfinder",
+    "assetfinder_tool": "assetfinder",
+    "dnsx_tool": "dnsx",
+    "gowitness_tool": "gowitness",
+    "jaeles_tool": "jaeles",
+    "cloudflair_tool": "cloudflair",
+    "s3scanner_tool": "s3scanner",
+    "trufflehog_tool": "trufflehog",
+    "gitleaks_tool": "gitleaks",
 }
 
 
@@ -398,6 +428,18 @@ RAW_TOOL_ARG_ALLOW_PREFIX = {
     "nmap": ["-s", "-p", "-Pn", "-T", "--top-ports", "--script"],
     "gobuster": ["dir", "-u", "-w", "-t", "--no-error", "-x", "-k"],
     "nikto": ["-host", "-Format", "-ssl", "-port"],
+    "ffuf": ["-u", "-w", "-json", "-t", "-rate", "-H", "-mc", "-fc", "-fs", "-fl", "-fw"],
+    "feroxbuster": ["-u", "-w", "--json", "-t", "--rate-limit", "-x", "-k", "-H"],
+    "wfuzz": ["-w", "-u", "--json", "-t", "--rate", "-H", "-c", "-f"],
+    "subfinder": ["-d", "-json", "-o", "-t"],
+    "assetfinder": ["-subs-only"],
+    "dnsx": ["-d", "-json", "-t", "-retry"],
+    "gowitness": ["scan", "single", "--json", "--udp", "--screenshot-path"],
+    "jaeles": ["scan", "-u", "-o", "-c", "-t"],
+    "cloudflair": ["--target", "--json", "--output"],
+    "s3scanner": ["--bucket", "--json", "--threads"],
+    "trufflehog": ["filesystem", "--json", "--include-paths", "--exclude-paths"],
+    "gitleaks": ["detect", "--source", "--report-format", "--config", "--verbose"],
 }
 MAX_RAW_ARG_COUNT = int(_env("MAX_RAW_ARG_COUNT", "24"))
 MAX_RAW_ARG_LENGTH = int(_env("MAX_RAW_ARG_LENGTH", "256"))
@@ -1330,6 +1372,184 @@ def binwalk_tool(
     context = _authorize("binwalk_tool", "passive", engagement_id, engagement_mode, auth_token)
     _audit_tool_call("binwalk_tool", context, target=file_path)
     return binwalk_scan(file_path)
+
+
+@_optional_binary_tool("ffuf_tool")
+@_instrument_tool("ffuf_tool", "intrusive")
+def ffuf_tool(
+    url: str,
+    wordlist: str = "/usr/share/wordlists/dirb/common.txt",
+    engagement_id: str | None = None,
+    engagement_mode: EngagementMode = "intrusive",
+    auth_token: str | None = None,
+) -> dict:
+    """Run ffuf directory fuzzing against a target URL."""
+    context = _authorize("ffuf_tool", "intrusive", engagement_id, engagement_mode, auth_token)
+    _enforce_url_scope(url)
+    _audit_tool_call("ffuf_tool", context, target=url)
+    return ffuf_scan(url=url, wordlist=wordlist)
+
+
+@_optional_binary_tool("feroxbuster_tool")
+@_instrument_tool("feroxbuster_tool", "intrusive")
+def feroxbuster_tool(
+    url: str,
+    wordlist: str = "/usr/share/wordlists/dirb/common.txt",
+    engagement_id: str | None = None,
+    engagement_mode: EngagementMode = "intrusive",
+    auth_token: str | None = None,
+) -> dict:
+    """Run feroxbuster directory enumeration against a target URL."""
+    context = _authorize("feroxbuster_tool", "intrusive", engagement_id, engagement_mode, auth_token)
+    _enforce_url_scope(url)
+    _audit_tool_call("feroxbuster_tool", context, target=url)
+    return feroxbuster_scan(url=url, wordlist=wordlist)
+
+
+@_optional_binary_tool("wfuzz_tool")
+@_instrument_tool("wfuzz_tool", "intrusive")
+def wfuzz_tool(
+    url: str,
+    wordlist: str = "/usr/share/wordlists/dirb/common.txt",
+    engagement_id: str | None = None,
+    engagement_mode: EngagementMode = "intrusive",
+    auth_token: str | None = None,
+) -> dict:
+    """Run wfuzz web application fuzzing against a target URL."""
+    context = _authorize("wfuzz_tool", "intrusive", engagement_id, engagement_mode, auth_token)
+    _enforce_url_scope(url)
+    _audit_tool_call("wfuzz_tool", context, target=url)
+    return wfuzz_scan(url=url, wordlist=wordlist)
+
+
+@_optional_binary_tool("subfinder_tool")
+@_instrument_tool("subfinder_tool", "passive")
+def subfinder_tool(
+    domain: str,
+    engagement_id: str | None = None,
+    engagement_mode: EngagementMode = "passive",
+    auth_token: str | None = None,
+) -> dict:
+    """Run passive subdomain enumeration with subfinder."""
+    context = _authorize("subfinder_tool", "passive", engagement_id, engagement_mode, auth_token)
+    validated_domain = policy.validate_domain(domain)
+    _audit_tool_call("subfinder_tool", context, target=validated_domain)
+    return subfinder_scan(validated_domain)
+
+
+@_optional_binary_tool("assetfinder_tool")
+@_instrument_tool("assetfinder_tool", "passive")
+def assetfinder_tool(
+    domain: str,
+    engagement_id: str | None = None,
+    engagement_mode: EngagementMode = "passive",
+    auth_token: str | None = None,
+) -> dict:
+    """Run subdomain enumeration with assetfinder."""
+    context = _authorize("assetfinder_tool", "passive", engagement_id, engagement_mode, auth_token)
+    validated_domain = policy.validate_domain(domain)
+    _audit_tool_call("assetfinder_tool", context, target=validated_domain)
+    return assetfinder_scan(validated_domain)
+
+
+@_optional_binary_tool("dnsx_tool")
+@_instrument_tool("dnsx_tool", "passive")
+def dnsx_tool(
+    domain: str,
+    engagement_id: str | None = None,
+    engagement_mode: EngagementMode = "passive",
+    auth_token: str | None = None,
+) -> dict:
+    """Run DNS probing with dnsx."""
+    context = _authorize("dnsx_tool", "passive", engagement_id, engagement_mode, auth_token)
+    validated_domain = policy.validate_domain(domain)
+    _audit_tool_call("dnsx_tool", context, target=validated_domain)
+    return dnsx_scan(validated_domain)
+
+
+@_optional_binary_tool("gowitness_tool")
+@_instrument_tool("gowitness_tool", "active")
+def gowitness_tool(
+    target: str,
+    engagement_id: str | None = None,
+    engagement_mode: EngagementMode = "active",
+    auth_token: str | None = None,
+) -> dict:
+    """Take screenshot and gather info with gowitness."""
+    context = _authorize("gowitness_tool", "active", engagement_id, engagement_mode, auth_token)
+    _audit_tool_call("gowitness_tool", context, target=target)
+    return gowitness_scan(target)
+
+
+@_optional_binary_tool("jaeles_tool")
+@_instrument_tool("jaeles_tool", "intrusive")
+def jaeles_tool(
+    target: str,
+    engagement_id: str | None = None,
+    engagement_mode: EngagementMode = "intrusive",
+    auth_token: str | None = None,
+) -> dict:
+    """Run vulnerability scanning with jaeles."""
+    context = _authorize("jaeles_tool", "intrusive", engagement_id, engagement_mode, auth_token)
+    _audit_tool_call("jaeles_tool", context, target=target)
+    return jaeles_scan(target)
+
+
+@_optional_binary_tool("cloudflair_tool")
+@_instrument_tool("cloudflair_tool", "passive")
+def cloudflair_tool(
+    domain: str,
+    engagement_id: str | None = None,
+    engagement_mode: EngagementMode = "passive",
+    auth_token: str | None = None,
+) -> dict:
+    """Detect Cloudflare bypasses and origin IPs with cloudflair."""
+    context = _authorize("cloudflair_tool", "passive", engagement_id, engagement_mode, auth_token)
+    validated_domain = policy.validate_domain(domain)
+    _audit_tool_call("cloudflair_tool", context, target=validated_domain)
+    return cloudflair_scan(validated_domain)
+
+
+@_optional_binary_tool("s3scanner_tool")
+@_instrument_tool("s3scanner_tool", "active")
+def s3scanner_tool(
+    bucket: str,
+    engagement_id: str | None = None,
+    engagement_mode: EngagementMode = "active",
+    auth_token: str | None = None,
+) -> dict:
+    """Scan S3 buckets for misconfigurations with s3scanner."""
+    context = _authorize("s3scanner_tool", "active", engagement_id, engagement_mode, auth_token)
+    _audit_tool_call("s3scanner_tool", context, target=bucket)
+    return s3scanner_scan(bucket)
+
+
+@_optional_binary_tool("trufflehog_tool")
+@_instrument_tool("trufflehog_tool", "passive")
+def trufflehog_tool(
+    file_path: str,
+    engagement_id: str | None = None,
+    engagement_mode: EngagementMode = "passive",
+    auth_token: str | None = None,
+) -> dict:
+    """Scan for secrets in filesystem with trufflehog."""
+    context = _authorize("trufflehog_tool", "passive", engagement_id, engagement_mode, auth_token)
+    _audit_tool_call("trufflehog_tool", context, target=file_path)
+    return trufflehog_scan(file_path)
+
+
+@_optional_binary_tool("gitleaks_tool")
+@_instrument_tool("gitleaks_tool", "passive")
+def gitleaks_tool(
+    file_path: str,
+    engagement_id: str | None = None,
+    engagement_mode: EngagementMode = "passive",
+    auth_token: str | None = None,
+) -> dict:
+    """Scan for secrets in git repos with gitleaks."""
+    context = _authorize("gitleaks_tool", "passive", engagement_id, engagement_mode, auth_token)
+    _audit_tool_call("gitleaks_tool", context, target=file_path)
+    return gitleaks_scan(file_path)
 
 
 @mcp.tool()

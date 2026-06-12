@@ -16,6 +16,9 @@ classifiers = [
 dependencies = [
   "mcp>=1.2.0",
   "defusedxml>=0.7.1",
+  "fastapi>=0.109.0",
+  "uvicorn>=0.29.0",
+  "jinja2>=3.1.0",
 ]
 
 [project.optional-dependencies]
@@ -26,10 +29,18 @@ dev = [
   "bandit>=1.7.0",
   "pip-audit>=2.7.0",
   "build>=1.2.0",
+  "hvac>=2.0.0",
+  "boto3>=1.34.0",
+]
+dashboard = [
+  "fastapi>=0.109.0",
+  "uvicorn>=0.29.0",
+  "jinja2>=3.1.0",
 ]
 
 [project.scripts]
 ghostmcp = "ghostmcp.server:main"
+ghostmcp-dashboard = "ghostmcp.__main__:run_dashboard"
 
 [tool.pytest.ini_options]
 addopts = "-q"

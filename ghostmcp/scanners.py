@@ -19,7 +19,24 @@ import urllib.request
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 
+from .parsers.amass import parse_amass_json
+from .parsers.assetfinder import parse_assetfinder_output
+from .parsers.cloudflair import parse_cloudflair_json
+from .parsers.dnsx import parse_dnsx_json
+from .parsers.feroxbuster import parse_feroxbuster_json
+from .parsers.ffuf import parse_ffuf_json
+from .parsers.gitleaks import parse_gitleaks_json
+from .parsers.gobuster import parse_gobuster_json
+from .parsers.gowitness import parse_gowitness_json
+from .parsers.jaeles import parse_jaeles_json
 from .parsers.nmap import parse_nmap_xml
+from .parsers.nuclei import parse_nuclei_jsonl
+from .parsers.s3scanner import parse_s3scanner_json
+from .parsers.sqlmap import parse_sqlmap_json
+from .parsers.subfinder import parse_subfinder_json
+from .parsers.trufflehog import parse_trufflehog_json
+from .parsers.wpscan import parse_wpscan_json
+from .proxy import apply_proxy_mode, get_proxy_env
 
 
 @dataclass
@@ -63,10 +80,18 @@ def _run_external_tool(
     max_stdout_bytes: int = 20000,
     max_stderr_bytes: int = 8000,
 ) -> dict:
+    # Apply proxy mode to command
+    command = apply_proxy_mode(command)
     binary = command[0]
     path = shutil.which(binary)
     if not path:
         raise ScannerError(f"Required tool is not installed: {binary}")
+
+    # Get proxy environment
+    proxy_env = get_proxy_env()
+    env = os.environ.copy()
+    if proxy_env:
+        env.update(proxy_env)
 
     started = time.monotonic()
     with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
@@ -76,6 +101,7 @@ def _run_external_tool(
             stderr=stderr_file,
             text=False,
             start_new_session=True,
+            env=env,
         )
         with _ACTIVE_PROCS_LOCK:
             _ACTIVE_PROCS.add(proc)
@@ -179,10 +205,13 @@ def verify_audit_log_integrity(log_path: str) -> dict:
 
 
 def sqlmap_scan(url: str, args: list[str] | None = None, timeout_s: float = 300.0) -> dict:
-    command = ["sqlmap", "-u", url, "--batch", "--random-agent"]
+    command = ["sqlmap", "-u", url, "--batch", "--random-agent", "--output-dir", "/tmp/sqlmap_out", "--dump-format", "json"]
     if args:
         command.extend(args)
-    return _run_external_tool(command, timeout_s=timeout_s)
+    result = _run_external_tool(command, timeout_s=timeout_s)
+    if result.get("exit_code") == 0:
+        result["parsed"] = parse_sqlmap_json(result.get("stdout", ""))
+    return result
 
 
 def hydra_scan(target: str, service: str, user: str, wordlist: str, timeout_s: float = 300.0) -> dict:
@@ -256,14 +285,25 @@ def http_probe(url: str, user_agent: str, timeout_s: float = 4.0) -> dict:
     if not parsed.netloc:
         raise ValueError("URL host is required")
 
+    # Set up proxy handler if configured
+    proxy_env = get_proxy_env()
+    opener = urllib.request.build_opener()
+    if proxy_env:
+        proxy_handler = urllib.request.ProxyHandler({
+            "http": proxy_env.get("http_proxy", ""),
+            "https": proxy_env.get("https_proxy", ""),
+        })
+        opener = urllib.request.build_opener(proxy_handler)
+
     req = urllib.request.Request(
         url=url,
         method="GET",
         headers={"User-Agent": user_agent, "Accept": "*/*"},
     )
     started = time.monotonic()
+
     def _probe() -> dict:
-        with urllib.request.urlopen(req, timeout=timeout_s) as resp:  # nosec B310
+        with opener.open(req, timeout=timeout_s) as resp:  # nosec B310
             elapsed = int((time.monotonic() - started) * 1000)
             headers = {k.lower(): v for k, v in resp.headers.items()}
             return {
@@ -274,12 +314,8 @@ def http_probe(url: str, user_agent: str, timeout_s: float = 4.0) -> dict:
                 "server": headers.get("server"),
                 "content_type": headers.get("content-type"),
                 "security_headers": {
-                    "strict_transport_security": headers.get(
-                        "strict-transport-security"
-                    ),
-                    "content_security_policy": headers.get(
-                        "content-security-policy"
-                    ),
+                    "strict_transport_security": headers.get("strict-transport-security"),
+                    "content_security_policy": headers.get("content-security-policy"),
                     "x_frame_options": headers.get("x-frame-options"),
                     "x_content_type_options": headers.get("x-content-type-options"),
                 },
@@ -351,13 +387,24 @@ def tls_certificate_expiry(host: str, port: int = 443, timeout_s: float = 4.0) -
 
 def fetch_security_txt(domain: str, user_agent: str, timeout_s: float = 4.0) -> dict:
     url = f"https://{domain}/.well-known/security.txt"
+
+    # Set up proxy handler if configured
+    proxy_env = get_proxy_env()
+    opener = urllib.request.build_opener()
+    if proxy_env:
+        proxy_handler = urllib.request.ProxyHandler({
+            "http": proxy_env.get("http_proxy", ""),
+            "https": proxy_env.get("https_proxy", ""),
+        })
+        opener = urllib.request.build_opener(proxy_handler)
+
     req = urllib.request.Request(
         url=url,
         method="GET",
         headers={"User-Agent": user_agent, "Accept": "text/plain"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout_s) as resp:  # nosec B310
+        with opener.open(req, timeout=timeout_s) as resp:  # nosec B310
             body = resp.read().decode("utf-8", errors="replace")
             content_type = resp.headers.get("content-type")
             lines = body.splitlines()
@@ -570,9 +617,11 @@ def nikto_scan(url: str, timeout_s: float = 180.0) -> dict:
 
 
 def amass_passive_enum(domain: str, timeout_s: float = 240.0) -> dict:
-    command = ["amass", "enum", "-passive", "-d", domain]
+    command = ["amass", "enum", "-passive", "-d", domain, "-json", "-"]
     result = _run_external_tool(command, timeout_s=timeout_s)
     result["domain"] = domain
+    if result.get("exit_code") == 0:
+        result["parsed"] = parse_amass_json(result.get("stdout", ""))
     return result
 
 
@@ -592,10 +641,13 @@ def gobuster_dir_scan(
         "-t",
         str(threads),
         "--no-error",
+        "--json",
     ]
     result = _run_external_tool(command, timeout_s=timeout_s)
     result["url"] = url
     result["wordlist"] = wordlist
+    if result.get("exit_code") == 0:
+        result["parsed"] = parse_gobuster_json(result.get("stdout", ""))
     return result
 
 
@@ -633,14 +685,20 @@ def wpscan_scan(url: str, args: list[str] | None = None, timeout_s: float = 600.
     command = ["wpscan", "--url", url, "--format", "json", "--random-user-agent", "--force"]
     if args:
         command.extend(args)
-    return _run_external_tool(command, timeout_s=timeout_s)
+    result = _run_external_tool(command, timeout_s=timeout_s)
+    if result.get("exit_code") == 0:
+        result["parsed"] = parse_wpscan_json(result.get("stdout", ""))
+    return result
 
 
 def dirsearch_scan(url: str, args: list[str] | None = None, timeout_s: float = 600.0) -> dict:
     command = ["dirsearch", "-u", url, "--format=json", "--no-color"]
     if args:
         command.extend(args)
-    return _run_external_tool(command, timeout_s=timeout_s)
+    result = _run_external_tool(command, timeout_s=timeout_s)
+    if result.get("exit_code") == 0:
+        result["parsed"] = parse_gobuster_json(result.get("stdout", ""))
+    return result
 
 
 def sslyze_scan(target: str, timeout_s: float = 300.0) -> dict:
@@ -671,10 +729,13 @@ def searchsploit_query(query: str, timeout_s: float = 60.0) -> dict:
 
 
 def nuclei_scan(target: str, templates: str | None = None, timeout_s: float = 600.0) -> dict:
-    command = ["nuclei", "-u", target, "-json-export", "-"]
+    command = ["nuclei", "-u", target, "-jsonl"]
     if templates:
         command.extend(["-t", templates])
-    return _run_external_tool(command, timeout_s=timeout_s)
+    result = _run_external_tool(command, timeout_s=timeout_s)
+    if result.get("exit_code") == 0:
+        result["parsed"] = parse_nuclei_jsonl(result.get("stdout", ""))
+    return result
 
 
 def exiftool_scan(file_path: str, timeout_s: float = 60.0) -> dict:
@@ -685,6 +746,102 @@ def exiftool_scan(file_path: str, timeout_s: float = 60.0) -> dict:
 def binwalk_scan(file_path: str, timeout_s: float = 300.0) -> dict:
     command = ["binwalk", file_path]
     return _run_external_tool(command, timeout_s=timeout_s)
+
+
+def ffuf_scan(url: str, wordlist: str = "/usr/share/wordlists/dirb/common.txt", timeout_s: float = 300.0) -> dict:
+    command = ["ffuf", "-u", url, "-w", wordlist, "-json", "-"]
+    result = _run_external_tool(command, timeout_s=timeout_s)
+    if result.get("exit_code") == 0:
+        result["parsed"] = parse_ffuf_json(result.get("stdout", ""))
+    return result
+
+
+def feroxbuster_scan(url: str, wordlist: str = "/usr/share/wordlists/dirb/common.txt", timeout_s: float = 300.0) -> dict:
+    command = ["feroxbuster", "-u", url, "-w", wordlist, "--json"]
+    result = _run_external_tool(command, timeout_s=timeout_s)
+    if result.get("exit_code") == 0:
+        result["parsed"] = parse_feroxbuster_json(result.get("stdout", ""))
+    return result
+
+
+def wfuzz_scan(url: str, wordlist: str = "/usr/share/wordlists/dirb/common.txt", timeout_s: float = 300.0) -> dict:
+    command = ["wfuzz", "-w", wordlist, "-u", url, "--json"]
+    result = _run_external_tool(command, timeout_s=timeout_s)
+    if result.get("exit_code") == 0:
+        result["parsed"] = parse_gobuster_json(result.get("stdout", ""))
+    return result
+
+
+def subfinder_scan(domain: str, timeout_s: float = 240.0) -> dict:
+    command = ["subfinder", "-d", domain, "-json"]
+    result = _run_external_tool(command, timeout_s=timeout_s)
+    if result.get("exit_code") == 0:
+        result["parsed"] = parse_subfinder_json(result.get("stdout", ""))
+    return result
+
+
+def assetfinder_scan(domain: str, timeout_s: float = 120.0) -> dict:
+    command = ["assetfinder", "-subs-only", domain]
+    result = _run_external_tool(command, timeout_s=timeout_s)
+    if result.get("exit_code") == 0:
+        result["parsed"] = parse_assetfinder_output(result.get("stdout", ""))
+    return result
+
+
+def dnsx_scan(domain: str, timeout_s: float = 120.0) -> dict:
+    command = ["dnsx", "-d", domain, "-json"]
+    result = _run_external_tool(command, timeout_s=timeout_s)
+    if result.get("exit_code") == 0:
+        result["parsed"] = parse_dnsx_json(result.get("stdout", ""))
+    return result
+
+
+def gowitness_scan(target: str, timeout_s: float = 300.0) -> dict:
+    command = ["gowitness", "scan", "single", target, "--json"]
+    result = _run_external_tool(command, timeout_s=timeout_s)
+    if result.get("exit_code") == 0:
+        result["parsed"] = parse_gowitness_json(result.get("stdout", ""))
+    return result
+
+
+def jaeles_scan(target: str, timeout_s: float = 600.0) -> dict:
+    command = ["jaeles", "scan", "-u", target, "-o", "json"]
+    result = _run_external_tool(command, timeout_s=timeout_s)
+    if result.get("exit_code") == 0:
+        result["parsed"] = parse_jaeles_json(result.get("stdout", ""))
+    return result
+
+
+def cloudflair_scan(domain: str, timeout_s: float = 300.0) -> dict:
+    command = ["cloudflair", "--target", domain, "--json"]
+    result = _run_external_tool(command, timeout_s=timeout_s)
+    if result.get("exit_code") == 0:
+        result["parsed"] = parse_cloudflair_json(result.get("stdout", ""))
+    return result
+
+
+def s3scanner_scan(bucket: str, timeout_s: float = 120.0) -> dict:
+    command = ["s3scanner", "--bucket", bucket, "--json"]
+    result = _run_external_tool(command, timeout_s=timeout_s)
+    if result.get("exit_code") == 0:
+        result["parsed"] = parse_s3scanner_json(result.get("stdout", ""))
+    return result
+
+
+def trufflehog_scan(path: str, timeout_s: float = 600.0) -> dict:
+    command = ["trufflehog", "filesystem", path, "--json"]
+    result = _run_external_tool(command, timeout_s=timeout_s)
+    if result.get("exit_code") == 0:
+        result["parsed"] = parse_trufflehog_json(result.get("stdout", ""))
+    return result
+
+
+def gitleaks_scan(path: str, timeout_s: float = 600.0) -> dict:
+    command = ["gitleaks", "detect", "--source", path, "--report-format", "json"]
+    result = _run_external_tool(command, timeout_s=timeout_s)
+    if result.get("exit_code") == 0:
+        result["parsed"] = parse_gitleaks_json(result.get("stdout", ""))
+    return result
 
 
 def port_scan(
