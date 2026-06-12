@@ -205,7 +205,8 @@ def verify_audit_log_integrity(log_path: str) -> dict:
 
 
 def sqlmap_scan(url: str, args: list[str] | None = None, timeout_s: float = 300.0) -> dict:
-    command = ["sqlmap", "-u", url, "--batch", "--random-agent", "--output-dir", "/tmp/sqlmap_out", "--dump-format", "json"]
+    output_dir = os.path.join(tempfile.gettempdir(), "sqlmap_out")
+    command = ["sqlmap", "-u", url, "--batch", "--random-agent", "--output-dir", output_dir, "--dump-format", "json"]
     if args:
         command.extend(args)
     result = _run_external_tool(command, timeout_s=timeout_s)
