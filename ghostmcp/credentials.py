@@ -227,6 +227,27 @@ class _PlainCredentialStore:
             except Exception:  # nosec B110 - corrupted or missing store
                 self._cache = {}
 
+    def get_credentials(self, tool_id: str, target: str | None = None) -> dict[str, Any] | None:
+        tool_creds = self._cache.get(tool_id, {})
+        if not tool_creds:
+            return None
+        if target and target in tool_creds:
+            return tool_creds[target]
+        return tool_creds.get("default")
+
+    def set_credentials(self, tool_id: str, creds: dict[str, Any], scope: str = "default"):
+        if tool_id not in self._cache:
+            self._cache[tool_id] = {}
+        self._cache[tool_id][scope] = creds
+        self._save()
+
+    def _save(self):
+        try:
+            with open(self.store_path, "w") as f:
+                json.dump(self._cache, f)
+        except Exception:  # nosec B110 - best effort save
+            pass
+
 def CredentialStore(store_path: str, password: str | None = None) -> EncryptedCredentialStore | _PlainCredentialStore:
     """Factory function to create appropriate credential store."""
     if CRYPTO_AVAILABLE and password:
