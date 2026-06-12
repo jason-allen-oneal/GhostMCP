@@ -26,9 +26,17 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
+      - name: Install pip-tools
+        run: pip install pip-tools
+
+      - name: Generate dev lock file
+        run: pip-compile --generate-hashes --output-file=requirements-dev.lock.txt pyproject.toml --extra dev
+
+      - name: Generate release lock file
+        run: pip-compile --generate-hashes --output-file=requirements-release.lock.txt pyproject.toml
+
       - name: Install dependencies
         run: |
-          # Install pinned third-party deps (with hashes), then install the project without deps.
           pip install --require-hashes -r requirements-dev.lock.txt
           pip install -e . --no-deps
 
