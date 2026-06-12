@@ -218,3 +218,28 @@ class _PlainCredentialStore:
         self.store_path = store_path
         self._cache: dict[str, Any] = {}
         self._load()
+
+    def _load(self):
+        if os.path.exists(self.store_path):
+            try:
+                with open(self.store_path, "r") as f:
+                    self._cache = json.load(f)
+            except Exception:  # nosec B110 - corrupted or missing store
+                self._cache = {}
+
+def CredentialStore(store_path: str, password: str | None = None) -> EncryptedCredentialStore | _PlainCredentialStore:
+    """Factory function to create appropriate credential store."""
+    if CRYPTO_AVAILABLE and password:
+        return EncryptedCredentialStore(store_path, password)
+    return _PlainCredentialStore(store_path)
+
+
+__all__ = [
+    "SecretManager",
+    "VaultSecretManager",
+    "AWSSecretManager",
+    "GCPSecretManager",
+    "EncryptedCredentialStore",
+    "_PlainCredentialStore",
+    "CredentialStore",
+]
