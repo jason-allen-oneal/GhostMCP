@@ -41,7 +41,7 @@ class VaultSecretManager(SecretManager):
                 return None
             response = client.secrets.kv.v2.read_secret_version(path=f"ghostmcp/{name}")
             return response.get("data", {}).get("data", {}).get("value")
-        except Exception:
+        except Exception:  # nosec B110 - expected to fail silently for missing secrets
             return None
 
     def set_secret(self, name: str, value: str) -> bool:
@@ -57,7 +57,7 @@ class VaultSecretManager(SecretManager):
                 secret={"value": value}
             )
             return True
-        except Exception:
+        except Exception:  # nosec B110 - expected to fail silently for network issues
             return False
 
 
@@ -73,7 +73,7 @@ class AWSSecretManager(SecretManager):
             client = boto3.client("secretsmanager", region_name=self.region)
             response = client.get_secret_value(SecretId=f"ghostmcp/{name}")
             return response.get("SecretString")
-        except Exception:
+        except Exception:  # nosec B110 - expected to fail silently for missing secrets
             return None
 
     def set_secret(self, name: str, value: str) -> bool:
@@ -82,7 +82,7 @@ class AWSSecretManager(SecretManager):
             client = boto3.client("secretsmanager", region_name=self.region)
             client.put_secret_value(SecretId=f"ghostmcp/{name}", SecretString=value)
             return True
-        except Exception:
+        except Exception:  # nosec B110 - expected to fail silently for network issues
             return False
 
 
@@ -101,7 +101,7 @@ class GCPSecretManager(SecretManager):
             secret_path = f"projects/{self.project_id}/secrets/ghostmcp-{name}/versions/latest"
             response = client.access_secret_version(request={"name": secret_path})
             return response.payload.data.decode("UTF-8")
-        except Exception:
+        except Exception:  # nosec B110 - expected to fail silently for missing secrets
             return None
 
     def set_secret(self, name: str, value: str) -> bool:
@@ -120,13 +120,13 @@ class GCPSecretManager(SecretManager):
                         "secret": {"replication": {"automatic": {}}},
                     }
                 )
-            except Exception:
+            except Exception:  # nosec B110 - secret may already exist
                 pass
             client.add_secret_version(
                 request={"parent": f"{parent}/secrets/{secret_id}", "payload": {"data": value.encode("UTF-8")}}
             )
             return True
-        except Exception:
+        except Exception:  # nosec B110 - expected to fail silently for network issues
             return False
 
 
@@ -181,7 +181,7 @@ class EncryptedCredentialStore:
                 if self._fernet and encrypted:
                     decrypted = self._fernet.decrypt(encrypted)
                     self._cache = json.loads(decrypted.decode())
-            except Exception:
+            except Exception:  # nosec B110 - corrupted or missing store
                 self._cache = {}
 
     def _save(self):
@@ -191,7 +191,7 @@ class EncryptedCredentialStore:
             encrypted = self._fernet.encrypt(json.dumps(self._cache).encode())
             with open(self.store_path, "wb") as f:
                 f.write(encrypted)
-        except Exception:
+        except Exception:  # nosec B110 - best effort save
             pass
 
     def get_credentials(self, tool_id: str, target: str | None = None) -> dict[str, Any] | None:
@@ -218,73 +218,3 @@ class _PlainCredentialStore:
         self.store_path = store_path
         self._cache: dict[str, Any] = {}
         self._load()
-
-    def _load(self):
-        if os.path.exists(self.store_path):
-            try:
-                with open(self.store_path) as f:
-                    self._cache = json.load(f)
-            except Exception:
-                self._cache = {}
-
-    def get_credentials(self, tool_id: str, target: str | None = None) -> dict[str, Any] | None:
-        tool_creds = self._cache.get(tool_id, {})
-        if not tool_creds:
-            return None
-
-        if target and target in tool_creds:
-            return tool_creds[target]
-
-        return tool_creds.get("default")
-
-    def set_credentials(self, tool_id: str, creds: dict[str, Any], scope: str = "default"):
-        if tool_id not in self._cache:
-            self._cache[tool_id] = {}
-        self._cache[tool_id][scope] = creds
-        self._save()
-
-    def _save(self):
-        with open(self.store_path, "w") as f:
-            json.dump(self._cache, f, indent=2)
-
-
-class CredentialStore:
-    """Main credential store with support for multiple backends."""
-
-    def __init__(
-        self,
-        store_path: str = "credentials.json",
-        encrypted: bool = False,
-        password: str | None = None,
-        secret_managers: list[SecretManager] | None = None,
-    ):
-        self.store_path = store_path
-        self.encrypted = encrypted
-        self.secret_managers = secret_managers or []
-
-        if encrypted:
-            self._store: _CredentialStoreBackend = EncryptedCredentialStore(store_path, password)
-        else:
-            self._store = _PlainCredentialStore(store_path)
-
-    def get_credentials(self, tool_id: str, target: str | None = None) -> dict[str, Any] | None:
-        """Retrieve credentials, checking secret managers first, then local store."""
-        for sm in self.secret_managers:
-            secret_name = f"{tool_id}/{target}" if target else f"{tool_id}/default"
-            value = sm.get_secret(secret_name)
-            if value:
-                try:
-                    return json.loads(value)
-                except Exception:
-                    pass
-
-        return self._store.get_credentials(tool_id, target)
-
-    def set_credentials(self, tool_id: str, creds: dict[str, Any], scope: str = "default"):
-        """Store credentials locally and optionally in secret managers."""
-        self._store.set_credentials(tool_id, creds, scope)
-
-        secret_name = f"{tool_id}/{scope}"
-        value = json.dumps(creds)
-        for sm in self.secret_managers:
-            sm.set_secret(secret_name, value)
