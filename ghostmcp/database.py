@@ -145,7 +145,7 @@ class Database:
             updated_at=now,
             status="active",
         )
-        self._execute(  # nosec B608 - column names validated against allowed set
+        self._execute(
             """INSERT INTO engagements (id, name, description, scope_cidrs, scope_domains,
                max_tool_level, created_at, updated_at, status)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -160,11 +160,11 @@ class Database:
                 engagement.updated_at,
                 engagement.status,
             ),
-        )
+        )  # nosec B608
         return engagement
 
     def get_engagement(self, engagement_id: str) -> Engagement | None:
-        cursor = self._execute(  # nosec B608 - column names validated against allowed set"SELECT * FROM engagements WHERE id = ?", (engagement_id,))
+        cursor = self._execute("SELECT * FROM engagements WHERE id = ?", (engagement_id,))  # nosec B608
         row = cursor.fetchone()
         if not row:
             return None
@@ -177,7 +177,7 @@ class Database:
             query += " WHERE status = ?"
             params = (status,)
         query += " ORDER BY created_at DESC"
-        cursor = self._execute(  # nosec B608 - column names validated against allowed setquery, params)
+        cursor = self._execute(query, params)  # nosec B608
         return [self._row_to_engagement(row) for row in cursor.fetchall()]
 
     def update_engagement(self, engagement_id: str, **kwargs) -> Engagement | None:
@@ -201,10 +201,10 @@ class Database:
         params.append(datetime.now(UTC).isoformat())
         params.append(engagement_id)
 
-        self._execute(  # nosec B608 - column names validated against allowed set
+        self._execute(
             f"UPDATE engagements SET {', '.join(updates)}, updated_at = ? WHERE id = ?",
             tuple(params),
-        )
+        )  # nosec B608
         return self.get_engagement(engagement_id)
 
     def delete_engagement(self, engagement_id: str) -> bool:
@@ -245,7 +245,7 @@ class Database:
             completed_at=None,
             error=None,
         )
-        self._execute(  # nosec B608 - column names validated against allowed set
+        self._execute(
             """INSERT INTO scans (id, engagement_id, tool_name, target, parameters, status,
                started_at, completed_at, error, result)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -261,13 +261,13 @@ class Database:
                 scan.error,
                 json.dumps(scan.result) if scan.result else None,
             ),
-        )
+        )  # nosec B608
         return scan
 
     def start_scan(self, scan_id: str) -> Scan | None:
         now = datetime.now(UTC).isoformat()
-        self._execute(  # nosec B608 - column names validated against allowed set
-            "UPDATE scans SET status = ?, started_at = ? WHERE id = ?",
+        self._execute(
+            "UPDATE scans SET status = ?, started_at = ? WHERE id = ?",  # nosec B608
             ("running", now, scan_id),
         )
         return self.get_scan(scan_id)
@@ -275,14 +275,14 @@ class Database:
     def complete_scan(self, scan_id: str, result: dict[str, Any] | None = None, error: str | None = None) -> Scan | None:
         now = datetime.now(UTC).isoformat()
         status = "failed" if error else "completed"
-        self._execute(  # nosec B608 - column names validated against allowed set
-            "UPDATE scans SET status = ?, completed_at = ?, result = ?, error = ? WHERE id = ?",
+        self._execute(
+            "UPDATE scans SET status = ?, completed_at = ?, result = ?, error = ? WHERE id = ?",  # nosec B608
             (status, now, json.dumps(result) if result else None, error, scan_id),
         )
         return self.get_scan(scan_id)
 
     def get_scan(self, scan_id: str) -> Scan | None:
-        cursor = self._execute(  # nosec B608 - column names validated against allowed set"SELECT * FROM scans WHERE id = ?", (scan_id,))
+        cursor = self._execute("SELECT * FROM scans WHERE id = ?", (scan_id,))  # nosec B608
         row = cursor.fetchone()
         if not row:
             return None
@@ -301,7 +301,7 @@ class Database:
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
         query += " ORDER BY started_at DESC"
-        cursor = self._execute(  # nosec B608 - column names validated against allowed setquery, tuple(params))
+        cursor = self._execute(query, tuple(params))  # nosec B608 - column names validated against allowed set
         return [self._row_to_scan(row) for row in cursor.fetchall()]
 
     def _row_to_scan(self, row: sqlite3.Row) -> Scan:
@@ -342,7 +342,7 @@ class Database:
             raw_data=raw_data or {},
             created_at=now,
         )
-        self._execute(  # nosec B608 - column names validated against allowed set
+        self._execute(
             """INSERT INTO scan_findings (id, scan_id, finding_type, severity, title,
                description, target, raw_data, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -357,11 +357,11 @@ class Database:
                 json.dumps(finding.raw_data),
                 finding.created_at,
             ),
-        )
+        )  # nosec B608
         return finding
 
     def get_findings(self, scan_id: str) -> list[ScanFinding]:
-        cursor = self._execute(  # nosec B608 - column names validated against allowed set"SELECT * FROM scan_findings WHERE scan_id = ? ORDER BY created_at DESC", (scan_id,))
+        cursor = self._execute("SELECT * FROM scan_findings WHERE scan_id = ? ORDER BY created_at DESC", (scan_id,))  # nosec B608
         return [self._row_to_finding(row) for row in cursor.fetchall()]
 
     def get_findings_by_severity(self, engagement_id: str, severity: str | None = None) -> list[ScanFinding]:
@@ -375,7 +375,7 @@ class Database:
             query += " AND f.severity = ?"
             params.append(severity)
         query += " ORDER BY f.created_at DESC"
-        cursor = self._execute(  # nosec B608 - column names validated against allowed setquery, tuple(params))
+        cursor = self._execute(query, tuple(params))  # nosec B608 - column names validated against allowed set
         return [self._row_to_finding(row) for row in cursor.fetchall()]
 
     def _row_to_finding(self, row: sqlite3.Row) -> ScanFinding:
