@@ -16,14 +16,16 @@
 
 GhostMCP provides a comprehensive toolkit for authorized security assessments:
 
-- **16 core tools** — DNS, WHOIS, HTTP, TLS, port scanning, IOC extraction, risk scoring, recon generators
+- **20 core tools** — DNS, WHOIS, HTTP, TLS, guarded port checks, IOC extraction, risk scoring, recon generators, and normalized assessment workflows
 - **36 curated binary-backed tools** — nmap, whatweb, nikto, amass, gobuster, nuclei, ffuf, feroxbuster, wfuzz, subfinder, assetfinder, dnsx, gowitness, jaeles, cloudflair, s3scanner, trufflehog, gitleaks, sqlmap, hydra, sslscan, wafw00f, wpscan, enum4linux-ng, crackmapexec, smbmap, smbclient, rpcclient, theharvester, masscan, dnsrecon, dirsearch, sslyze, searchsploit, exiftool, binwalk (auto-discovered at startup)
 - **76 raw binary wrappers** — supported but disabled by default; each binary must be explicitly allowlisted
 - **Engagement context** — `engagement_id`, `engagement_mode` (`default|passive|active|intrusive`)
 - **Policy controls** — CIDR/domain allowlists, port blocking, rate limits, tool-level ceilings
 - **Proxy/Tor** — `GHOSTMCP_PROXY_MODE=tor|proxychains|torsocks` for all outbound traffic
 - **Encrypted credentials** — Fernet-encrypted store + Vault/AWS/GCP secret managers
-- **Database-backed** — SQLite engagement/scan/finding tracking with web dashboard
+- **Database-backed** — SQLite engagement, scan, schedule, and finding tracking with web dashboard
+- **Executable scheduling** — in-process worker queue with cron schedules, atomic leases, and duplicate-submit protection
+- **Normalized workflows** — web surface, TLS posture, and host exposure assessments
 - **Plugin system** — Entrypoint-based extensions, disabled by default and explicitly allowlisted
 - **Remote transport** — `streamable-http` with token/mTLS auth
 - **Audit & metrics** — Persistent canonical hash chain, optional HMAC signatures, per-tool metrics, health probes
@@ -76,6 +78,8 @@ pip install -e .[dashboard]
 ghostmcp-dashboard
 # Opens at http://127.0.0.1:8080
 ```
+
+The dashboard runs one in-process worker and one scheduler. Schedule claims use SQLite leases to prevent duplicate execution across concurrently running dashboard instances, but queued work is not durable across a process crash. Run a single dashboard instance unless all instances share the same database and file-root policy.
 
 ## Tool Types
 
@@ -167,6 +171,14 @@ pip install ghostmcp-plugin-example
 export GHOSTMCP_PLUGIN_GROUP=myorg.ghostmcp.plugins
 ```
 Develop plugins via the `ghostmcp.plugins` entrypoint. Runtime loading requires `GHOSTMCP_ENABLE_PLUGINS=true` and a matching `GHOSTMCP_PLUGIN_ALLOWLIST`. See [Plugin Development](docs/PLUGINS.md).
+
+## Normalized Assessment Workflows
+
+- `web_surface_assessment_tool` validates scope, probes HTTP security posture, and optionally runs WhatWeb and WAF detection when installed.
+- `tls_posture_assessment_tool` validates the target and port, inspects certificate state and expiration, and optionally runs `sslscan`.
+- `host_exposure_assessment_tool` performs a policy-bounded TCP exposure check over an explicit port list.
+
+Dashboard-created scans use a guarded executor registry rather than arbitrary command arguments. Local file tools require `GHOSTMCP_ALLOWED_FILE_ROOTS`, and scheduled scans use five-field UTC cron expressions.
 
 ## Requirements
 - Python 3.11+

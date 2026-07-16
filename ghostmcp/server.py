@@ -79,6 +79,11 @@ from .scanners import (
 )
 from .security import SecurityPolicy
 from .transport_security import TransportAuthMiddleware, get_transport_principal
+from .workflows import (
+    host_exposure_assessment,
+    tls_posture_assessment,
+    web_surface_assessment,
+)
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -124,7 +129,7 @@ mcp = FastMCP(
 ToolLevel = Literal["passive", "active", "intrusive"]
 EngagementMode = Literal["default", "passive", "active", "intrusive"]
 TOOL_LEVELS = {"passive": 1, "active": 2, "intrusive": 3}
-CORE_TOOL_COUNT = 17
+CORE_TOOL_COUNT = 20
 _metrics_lock = threading.Lock()
 _shutdown_event = threading.Event()
 AUDIT_SINK_PATH = _env("AUDIT_SINK_PATH", "").strip()
@@ -1593,6 +1598,72 @@ def gitleaks_tool(
     context = _authorize("gitleaks_tool", "passive", engagement_id, engagement_mode, auth_token)
     _audit_tool_call("gitleaks_tool", context, target=file_path)
     return gitleaks_scan(file_path)
+
+
+@mcp.tool()
+@_instrument_tool("web_surface_assessment_tool", "active")
+def web_surface_assessment_tool(
+    url: str,
+    engagement_id: str | None = None,
+    engagement_mode: EngagementMode = "active",
+    auth_token: str | None = None,
+) -> dict:
+    """Run a normalized web surface assessment using available guarded probes."""
+    context = _authorize(
+        "web_surface_assessment_tool",
+        "active",
+        engagement_id,
+        engagement_mode,
+        auth_token,
+    )
+    _audit_tool_call("web_surface_assessment_tool", context, target=url)
+    return web_surface_assessment(policy, url, cfg.user_agent)
+
+
+@mcp.tool()
+@_instrument_tool("tls_posture_assessment_tool", "active")
+def tls_posture_assessment_tool(
+    host: str,
+    port: int = 443,
+    engagement_id: str | None = None,
+    engagement_mode: EngagementMode = "active",
+    auth_token: str | None = None,
+) -> dict:
+    """Run certificate, expiry, and optional sslscan checks as one workflow."""
+    context = _authorize(
+        "tls_posture_assessment_tool",
+        "active",
+        engagement_id,
+        engagement_mode,
+        auth_token,
+    )
+    _audit_tool_call(
+        "tls_posture_assessment_tool", context, target=f"{host}:{port}"
+    )
+    return tls_posture_assessment(policy, host, port)
+
+
+@mcp.tool()
+@_instrument_tool("host_exposure_assessment_tool", "intrusive")
+def host_exposure_assessment_tool(
+    host: str,
+    ports: list[int],
+    engagement_id: str | None = None,
+    engagement_mode: EngagementMode = "intrusive",
+    auth_token: str | None = None,
+) -> dict:
+    """Run a policy-bounded TCP exposure assessment with normalized output."""
+    context = _authorize(
+        "host_exposure_assessment_tool",
+        "intrusive",
+        engagement_id,
+        engagement_mode,
+        auth_token,
+    )
+    _audit_tool_call("host_exposure_assessment_tool", context, target=host)
+    return host_exposure_assessment(
+        policy, host, ports, cfg.connect_timeout_ms
+    )
 
 
 @mcp.tool()

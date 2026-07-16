@@ -29,6 +29,11 @@ class DatabaseTests(unittest.TestCase):
     def test_scan_and_finding_lifecycle(self) -> None:
         self.db.create_engagement("eng-1", "Review")
         self.db.create_scan("scan-1", "eng-1", "nmap_service_scan_tool", "10.0.0.2")
+        queued = self.db.queue_scan("scan-1")
+        self.assertIsNotNone(queued)
+        assert queued is not None
+        self.assertEqual(queued.status, "queued")
+        self.assertIsNone(self.db.queue_scan("scan-1"))
         running = self.db.start_scan("scan-1")
         self.assertIsNotNone(running)
         assert running is not None
@@ -49,6 +54,46 @@ class DatabaseTests(unittest.TestCase):
         stats = self.db.get_engagement_stats("eng-1")
         self.assertEqual(stats["total_scans"], 1)
         self.assertEqual(stats["total_findings"], 1)
+
+    def test_schedule_lifecycle(self) -> None:
+        self.db.create_engagement("eng-1", "Review")
+        schedule = self.db.create_schedule(
+            "schedule-1",
+            "eng-1",
+            "whatweb_tool",
+            "https://10.0.0.2",
+            {},
+            "0 2 * * *",
+            "2026-07-16T02:00:00+00:00",
+        )
+        self.assertTrue(schedule.enabled)
+        self.assertEqual(self.db.list_due_schedules("2026-07-16T02:00:00+00:00"), [schedule])
+        claimed = self.db.claim_due_schedules(
+            "2026-07-16T02:00:00+00:00",
+            "2026-07-16T02:05:00+00:00",
+        )
+        self.assertEqual(len(claimed), 1)
+        self.assertEqual(claimed[0].claimed_until, "2026-07-16T02:05:00+00:00")
+        self.assertEqual(
+            self.db.claim_due_schedules(
+                "2026-07-16T02:01:00+00:00",
+                "2026-07-16T02:06:00+00:00",
+            ),
+            [],
+        )
+        updated = self.db.mark_schedule_run(
+            "schedule-1",
+            last_run_at="2026-07-16T02:00:00+00:00",
+            next_run_at="2026-07-17T02:00:00+00:00",
+        )
+        self.assertIsNotNone(updated)
+        assert updated is not None
+        self.assertEqual(updated.last_run_at, "2026-07-16T02:00:00+00:00")
+        self.assertIsNone(updated.claimed_until)
+        disabled = self.db.set_schedule_enabled("schedule-1", False)
+        self.assertIsNotNone(disabled)
+        assert disabled is not None
+        self.assertFalse(disabled.enabled)
 
     def test_delete_engagement_cascades(self) -> None:
         self.db.create_engagement("eng-1", "Review")

@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 ENGAGEMENT_STATUSES = {"active", "completed", "archived"}
-SCAN_STATUSES = {"pending", "running", "completed", "failed"}
+SCAN_STATUSES = {"pending", "queued", "running", "completed", "failed"}
 TOOL_LEVELS = {"passive", "active", "intrusive"}
 SEVERITIES = {"critical", "high", "medium", "low", "info"}
 
@@ -58,6 +58,21 @@ class ScanFinding:
     target: str
     raw_data: dict[str, Any]
     created_at: str
+
+
+@dataclass(frozen=True)
+class ScanSchedule:
+    id: str
+    engagement_id: str
+    tool_name: str
+    target: str
+    parameters: dict[str, Any]
+    cron_expression: str
+    enabled: bool
+    next_run_at: str
+    last_run_at: str | None
+    created_at: str
+    claimed_until: str | None
 
 
 class Database:
@@ -111,6 +126,22 @@ class Database:
                         ON DELETE CASCADE
                 );
 
+                CREATE TABLE IF NOT EXISTS scan_schedules (
+                    id TEXT PRIMARY KEY,
+                    engagement_id TEXT NOT NULL,
+                    tool_name TEXT NOT NULL,
+                    target TEXT NOT NULL,
+                    parameters TEXT NOT NULL DEFAULT '{}',
+                    cron_expression TEXT NOT NULL,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    next_run_at TEXT NOT NULL,
+                    last_run_at TEXT,
+                    created_at TEXT NOT NULL,
+                    claimed_until TEXT,
+                    FOREIGN KEY (engagement_id) REFERENCES engagements (id)
+                        ON DELETE CASCADE
+                );
+
                 CREATE TABLE IF NOT EXISTS scan_findings (
                     id TEXT PRIMARY KEY,
                     scan_id TEXT NOT NULL,
@@ -129,12 +160,21 @@ class Database:
                     ON scans (engagement_id);
                 CREATE INDEX IF NOT EXISTS idx_scans_status
                     ON scans (status);
+                CREATE INDEX IF NOT EXISTS idx_schedules_engagement
+                    ON scan_schedules (engagement_id);
+                CREATE INDEX IF NOT EXISTS idx_schedules_due
+                    ON scan_schedules (enabled, next_run_at);
                 CREATE INDEX IF NOT EXISTS idx_findings_scan
                     ON scan_findings (scan_id);
                 CREATE INDEX IF NOT EXISTS idx_findings_severity
                     ON scan_findings (severity);
                 """
             )
+            schedule_columns = {
+                row["name"] for row in conn.execute("PRAGMA table_info(scan_schedules)")
+            }
+            if "claimed_until" not in schedule_columns:
+                conn.execute("ALTER TABLE scan_schedules ADD COLUMN claimed_until TEXT")
             conn.commit()
 
     def _execute_write(self, query: str, params: Sequence[Any] = ()) -> int:
@@ -295,6 +335,10 @@ class Database:
                 (engagement_id,),
             )
             conn.execute("DELETE FROM scans WHERE engagement_id = ?", (engagement_id,))
+            conn.execute(
+                "DELETE FROM scan_schedules WHERE engagement_id = ?",
+                (engagement_id,),
+            )
             cursor = conn.execute(
                 "DELETE FROM engagements WHERE id = ?", (engagement_id,)
             )
@@ -359,14 +403,21 @@ class Database:
         )
         return scan
 
+    def queue_scan(self, scan_id: str) -> Scan | None:
+        rowcount = self._execute_write(
+            "UPDATE scans SET status = ?, error = NULL "
+            "WHERE id = ? AND status IN ('pending', 'failed')",
+            ("queued", scan_id),
+        )
+        return self.get_scan(scan_id) if rowcount else None
+
     def start_scan(self, scan_id: str) -> Scan | None:
-        if self.get_scan(scan_id) is None:
-            return None
-        self._execute_write(
-            "UPDATE scans SET status = ?, started_at = ?, completed_at = NULL, error = NULL WHERE id = ?",
+        rowcount = self._execute_write(
+            "UPDATE scans SET status = ?, started_at = ?, completed_at = NULL, error = NULL "
+            "WHERE id = ? AND status IN ('pending', 'queued', 'failed')",
             ("running", datetime.now(UTC).isoformat(), scan_id),
         )
-        return self.get_scan(scan_id)
+        return self.get_scan(scan_id) if rowcount else None
 
     def complete_scan(
         self,
@@ -426,6 +477,168 @@ class Database:
             started_at=row["started_at"],
             completed_at=row["completed_at"],
             error=row["error"],
+        )
+
+    def create_schedule(
+        self,
+        schedule_id: str,
+        engagement_id: str,
+        tool_name: str,
+        target: str,
+        parameters: dict[str, Any],
+        cron_expression: str,
+        next_run_at: str,
+    ) -> ScanSchedule:
+        if self.get_engagement(engagement_id) is None:
+            raise ValueError(f"Unknown engagement: {engagement_id}")
+        schedule = ScanSchedule(
+            id=schedule_id.strip(),
+            engagement_id=engagement_id,
+            tool_name=tool_name.strip(),
+            target=target.strip(),
+            parameters=dict(parameters),
+            cron_expression=cron_expression.strip(),
+            enabled=True,
+            next_run_at=next_run_at,
+            last_run_at=None,
+            created_at=datetime.now(UTC).isoformat(),
+            claimed_until=None,
+        )
+        if not all(
+            (schedule.id, schedule.tool_name, schedule.target, schedule.cron_expression)
+        ):
+            raise ValueError("Schedule id, tool, target, and cron are required")
+        self._execute_write(
+            """INSERT INTO scan_schedules (
+                   id, engagement_id, tool_name, target, parameters,
+                   cron_expression, enabled, next_run_at, last_run_at, created_at,
+                   claimed_until
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                schedule.id,
+                schedule.engagement_id,
+                schedule.tool_name,
+                schedule.target,
+                json.dumps(schedule.parameters),
+                schedule.cron_expression,
+                1,
+                schedule.next_run_at,
+                None,
+                schedule.created_at,
+                None,
+            ),
+        )
+        return schedule
+
+    def get_schedule(self, schedule_id: str) -> ScanSchedule | None:
+        row = self._fetchone(
+            "SELECT * FROM scan_schedules WHERE id = ?", (schedule_id,)
+        )
+        return self._row_to_schedule(row) if row else None
+
+    def list_schedules(
+        self, engagement_id: str | None = None
+    ) -> list[ScanSchedule]:
+        if engagement_id:
+            rows = self._fetchall(
+                "SELECT * FROM scan_schedules WHERE engagement_id = ? "
+                "ORDER BY next_run_at",
+                (engagement_id,),
+            )
+        else:
+            rows = self._fetchall(
+                "SELECT * FROM scan_schedules ORDER BY next_run_at"
+            )
+        return [self._row_to_schedule(row) for row in rows]
+
+    def list_due_schedules(self, now_iso: str) -> list[ScanSchedule]:
+        rows = self._fetchall(
+            "SELECT * FROM scan_schedules "
+            "WHERE enabled = 1 AND next_run_at <= ? "
+            "AND (claimed_until IS NULL OR claimed_until <= ?) "
+            "ORDER BY next_run_at",
+            (now_iso, now_iso),
+        )
+        return [self._row_to_schedule(row) for row in rows]
+
+    def claim_due_schedules(
+        self, now_iso: str, claimed_until_iso: str, limit: int = 100
+    ) -> list[ScanSchedule]:
+        if limit < 1 or limit > 1000:
+            raise ValueError("Schedule claim limit must be between 1 and 1000")
+        claimed_ids: list[str] = []
+        with self._lock, self._get_conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            rows = conn.execute(
+                "SELECT id FROM scan_schedules "
+                "WHERE enabled = 1 AND next_run_at <= ? "
+                "AND (claimed_until IS NULL OR claimed_until <= ?) "
+                "ORDER BY next_run_at LIMIT ?",
+                (now_iso, now_iso, limit),
+            ).fetchall()
+            for row in rows:
+                cursor = conn.execute(
+                    "UPDATE scan_schedules SET claimed_until = ? "
+                    "WHERE id = ? AND enabled = 1 AND next_run_at <= ? "
+                    "AND (claimed_until IS NULL OR claimed_until <= ?)",
+                    (claimed_until_iso, row["id"], now_iso, now_iso),
+                )
+                if cursor.rowcount:
+                    claimed_ids.append(row["id"])
+            conn.commit()
+            if not claimed_ids:
+                return []
+            placeholders = ",".join("?" for _ in claimed_ids)
+            claimed_rows = conn.execute(
+                f"SELECT * FROM scan_schedules WHERE id IN ({placeholders}) "
+                "ORDER BY next_run_at",  # nosec B608 - placeholders only
+                claimed_ids,
+            ).fetchall()
+        return [self._row_to_schedule(row) for row in claimed_rows]
+
+    def mark_schedule_run(
+        self, schedule_id: str, *, last_run_at: str, next_run_at: str
+    ) -> ScanSchedule | None:
+        if self.get_schedule(schedule_id) is None:
+            return None
+        self._execute_write(
+            "UPDATE scan_schedules SET last_run_at = ?, next_run_at = ?, "
+            "claimed_until = NULL WHERE id = ?",
+            (last_run_at, next_run_at, schedule_id),
+        )
+        return self.get_schedule(schedule_id)
+
+    def release_schedule_claim(self, schedule_id: str) -> None:
+        self._execute_write(
+            "UPDATE scan_schedules SET claimed_until = NULL WHERE id = ?",
+            (schedule_id,),
+        )
+
+    def set_schedule_enabled(
+        self, schedule_id: str, enabled: bool
+    ) -> ScanSchedule | None:
+        if self.get_schedule(schedule_id) is None:
+            return None
+        self._execute_write(
+            "UPDATE scan_schedules SET enabled = ?, claimed_until = NULL WHERE id = ?",
+            (1 if enabled else 0, schedule_id),
+        )
+        return self.get_schedule(schedule_id)
+
+    @staticmethod
+    def _row_to_schedule(row: sqlite3.Row) -> ScanSchedule:
+        return ScanSchedule(
+            id=row["id"],
+            engagement_id=row["engagement_id"],
+            tool_name=row["tool_name"],
+            target=row["target"],
+            parameters=json.loads(row["parameters"]),
+            cron_expression=row["cron_expression"],
+            enabled=bool(row["enabled"]),
+            next_run_at=row["next_run_at"],
+            last_run_at=row["last_run_at"],
+            created_at=row["created_at"],
+            claimed_until=row["claimed_until"],
         )
 
     def add_finding(
