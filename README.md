@@ -7,341 +7,235 @@
 [![CI](https://github.com/jason-allen-oneal/GhostMCP/actions/workflows/ci.yml/badge.svg)](https://github.com/jason-allen-oneal/GhostMCP/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/jason-allen-oneal/GhostMCP/actions/workflows/codeql.yml/badge.svg)](https://github.com/jason-allen-oneal/GhostMCP/actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/jason-allen-oneal/GhostMCP/badge)](https://securityscorecards.dev/viewer/?uri=github.com/jason-allen-oneal/GhostMCP)
-[![Dependabot Updates](https://github.com/jason-allen-oneal/GhostMCP/actions/workflows/dependabot/dependabot-updates/badge.svg)](https://github.com/jason-allen-oneal/GhostMCP/actions/workflows/dependabot/dependabot-updates)
-[![License](https://img.shields.io/github/license/jason-allen-oneal/GhostMCP)](https://github.com/jason-allen-oneal/GhostMCP/blob/main/LICENSE)
-[![Security Policy](https://img.shields.io/badge/security-policy-blue)](https://github.com/jason-allen-oneal/GhostMCP/blob/main/SECURITY.md)
-[![Contributing](https://img.shields.io/badge/contributing-guidelines-blue)](https://github.com/jason-allen-oneal/GhostMCP/blob/main/CONTRIBUTING.md)
+[![License](https://img.shields.io/github/license/jason-allen-oneal/GhostMCP)](LICENSE)
+[![Security Policy](https://img.shields.io/badge/security-policy-blue)](SECURITY.md)
 
-**128+ supported security integrations** for authorized assessment workflows. GhostMCP is currently an alpha release and defaults to a restricted posture.
+GhostMCP is a security-focused MCP server for authorized assessment workflows. It combines policy-guarded native tools, curated external scanners, normalized workflows, a local dashboard, scheduling, credential backends, and auditable execution.
 
-GhostMCP provides a comprehensive toolkit for authorized security assessments:
+GhostMCP is currently an alpha release. It defaults to a restricted posture and should be deployed only in environments where the operator controls the target scope, credentials, network path, and installed security tools.
 
-- **20 core tools** — DNS, WHOIS, HTTP, TLS, guarded port checks, IOC extraction, risk scoring, recon generators, and normalized assessment workflows
-- **36 curated binary-backed tools** — nmap, whatweb, nikto, amass, gobuster, nuclei, ffuf, feroxbuster, wfuzz, subfinder, assetfinder, dnsx, gowitness, jaeles, cloudflair, s3scanner, trufflehog, gitleaks, sqlmap, hydra, sslscan, wafw00f, wpscan, enum4linux-ng, crackmapexec, smbmap, smbclient, rpcclient, theharvester, masscan, dnsrecon, dirsearch, sslyze, searchsploit, exiftool, binwalk (auto-discovered at startup)
-- **76 raw binary wrappers** — supported but disabled by default; each binary must be explicitly allowlisted
-- **Engagement context** — `engagement_id`, `engagement_mode` (`default|passive|active|intrusive`)
-- **Policy controls** — CIDR/domain allowlists, port blocking, rate limits, tool-level ceilings
-- **Proxy/Tor** — `GHOSTMCP_PROXY_MODE=tor|proxychains|torsocks` for all outbound traffic
-- **Encrypted credentials** — Fernet-encrypted store + Vault/AWS/GCP secret managers
-- **Database-backed** — SQLite engagement, scan, schedule, and finding tracking with web dashboard
-- **Executable scheduling** — in-process worker queue with cron schedules, atomic leases, and duplicate-submit protection
-- **Normalized workflows** — web surface, TLS posture, and host exposure assessments
-- **Plugin system** — Entrypoint-based extensions, disabled by default and explicitly allowlisted
-- **Remote transport** — `streamable-http` with token/mTLS auth
-- **Audit & metrics** — Persistent canonical hash chain, optional HMAC signatures, per-tool metrics, health probes
+## Safety and authorization
 
-## Quick Links
-- [Documentation](docs/README.md)
-- [Runbook](docs/RUNBOOK.md)
-- [Web Dashboard](docs/DASHBOARD.md) — `ghostmcp-dashboard` at http://localhost:8080
-- [Plugin Development](docs/PLUGINS.md)
+Use GhostMCP only against systems you own or are explicitly authorized to assess. The runtime provides scope controls and execution ceilings, but those controls do not replace written authorization, rules of engagement, or operator review.
 
-## Remote Transport Security
-GhostMCP supports `streamable-http` transport via `GHOSTMCP_TRANSPORT_MODE=remote_gateway`. Run the server on a separate host from the LLM client.
+Secure defaults include:
 
-### Threat Model & Auth Modes
-1. **`AUTH_MODE=none`**: **Hard blocked** in remote mode unless `GHOSTMCP_ALLOW_INSECURE_REMOTE_NO_AUTH=true` is set. Local testing only.
-2. **`AUTH_MODE=token`**: Requires `GHOSTMCP_AUTH_TOKEN`. Clients authenticate with `Authorization: Bearer <token>` at the HTTP transport. Tokens are not part of MCP tool schemas.
-3. **`AUTH_MODE=mtls`**: Most secure. Requires CA, client cert, and private key. Enforces mutual TLS.
+- Private-address targeting by default
+- Engagement context required by default
+- Maximum tool level set to `active`
+- Raw binary wrappers disabled by default
+- External plugins disabled by default
+- Credential storage disabled until a backend is selected
+- Remote transport without authentication blocked by default
+- Dashboard authentication required by default
 
-**Recommendations:**
-- Always use `mtls` for production remote deployments.
-- Bind to a specific internal interface (`GHOSTMCP_HTTP_HOST`) rather than `0.0.0.0`.
-- Use a firewall to restrict access to `GHOSTMCP_HTTP_PORT`.
+## Capabilities
 
-## Deployment Quickstart
+- Core MCP tools for DNS, WHOIS, HTTP, TLS, TCP exposure checks, IOC extraction, URL risk scoring, recon generation, metrics, and health checks
+- Normalized assessment workflows for web surface, TLS posture, and host exposure reviews
+- Curated wrappers for common security tools when their binaries are installed
+- Optional raw Kali wrappers with explicit global enablement and per-binary allowlisting
+- CIDR, domain, port, engagement, and tool-level policy controls
+- Streamable HTTP transport with bearer-token or mTLS authentication
+- SQLite engagement, scan, schedule, and finding persistence
+- Authenticated web dashboard with a guarded execution registry
+- Five-field UTC cron scheduling with SQLite leases and duplicate-submit protection
+- Disabled-by-default entry-point plugin system with explicit allowlisting
+- Encrypted local credentials or Vault, AWS Secrets Manager, and GCP Secret Manager backends
+- Persistent canonical audit hash chain with optional HMAC signatures
 
-### Systemd (Linux)
-```bash
-# Edit deploy/systemd/ghostmcp.service with your environment variables
-sudo cp deploy/systemd/ghostmcp.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now ghostmcp
-```
+## Documentation
 
-### Docker
-```bash
-docker build -f deploy/container/Dockerfile -t ghostmcp .
-docker run -d \
-  --name ghostmcp \
-  -e GHOSTMCP_AUTH_MODE=token \
-  -e GHOSTMCP_AUTH_TOKEN=your-secret-token \
-  ghostmcp
-```
-
-### Web Dashboard (NEW)
-```bash
-# Install dashboard dependencies
-pip install -e .[dashboard]
-
-# Run dashboard
-ghostmcp-dashboard
-# Opens at http://127.0.0.1:8080
-```
-
-The dashboard runs one in-process worker and one scheduler. Schedule claims use SQLite leases to prevent duplicate execution across concurrently running dashboard instances, but queued work is not durable across a process crash. Run a single dashboard instance unless all instances share the same database and file-root policy.
-
-## Tool Types
-
-### 1) Core tools (always available, 16)
-- `dns_lookup_tool` — A record resolution
-- `reverse_dns_tool` — PTR lookup
-- `whois_tool` — WHOIS query
-- `http_probe_tool` — HTTP(S) probe with security headers
-- `tls_certificate_tool` — TLS cert fetch/summary
-- `tls_certificate_expiry_tool` — Cert expiration check
-- `tcp_port_scan_tool` — Policy-guarded TCP port scan
-- `security_txt_tool` — .well-known/security.txt fetch
-- `ioc_extract_tool` — URLs, domains, IPs, hashes from text
-- `url_risk_score_tool` — Heuristic URL risk scoring
-- `subdomain_candidates_tool` — Subdomain generation for recon
-- `common_web_paths_tool` — Common web endpoint generation
-- `toolchain_status_tool` — Installed/missing binaries & enabled tools
-- `metrics_tool` — Runtime call/failure/timeout/deny stats
-- `runtime_probe_tool` — Readiness/liveness probe
-- `server_health_tool` — Policy/config snapshot + toolchain summary
-
-### 2) Curated binary-backed tools (36, enabled when installed)
-**Recon & Discovery**
-- `nmap_service_scan_tool` — Service version detection
-- `whatweb_tool` — Web technology fingerprinting
-- `nikto_tool` — Web vulnerability scanning
-- `amass_passive_tool` — Passive subdomain enumeration
-- `subfinder_tool` — Fast passive subdomain enum
-- `assetfinder_tool` — Asset discovery
-- `dnsx_tool` — Fast DNS probing
-- `gowitness_tool` — Web screenshots & metadata
-- `theharvester_tool` — OSINT gathering
-- `masscan_tool` — High-speed port scanning
-- `dnsrecon_tool` — DNS enumeration
-
-**Vulnerability Scanning**
-- `nuclei_tool` — Template-based vuln scanning
-- `jaeles_tool` — Vulnerability scanning engine
-- `sqlmap_tool` — SQL injection testing
-- `wpscan_tool` — WordPress vulnerability scanning
-- `wafw00f_tool` — WAF detection
-- `sslyze_tool` — Advanced SSL/TLS analysis
-- `searchsploit_tool` — ExploitDB search
-
-**Directory & Content Discovery**
-- `gobuster_dir_tool` — Directory enumeration
-- `ffuf_tool` — Fast web fuzzer
-- `feroxbuster_tool` — Fast recursive content discovery
-- `wfuzz_tool` — Web application fuzzer
-- `dirsearch_tool` — Directory brute-forcing
-
-**Cloud & Secret Scanning**
-- `cloudflair_tool` — Cloudflare origin IP detection
-- `s3scanner_tool` — S3 bucket misconfiguration scanning
-- `trufflehog_tool` — Secret scanning (filesystem)
-- `gitleaks_tool` — Secret scanning (git repos)
-
-**Network & Auth**
-- `hydra_tool` — Password brute-forcing
-- `enum4linux_ng_tool` — SMB/Windows enumeration
-- `crackmapexec_tool` — SMB/AD assessment
-- `smbmap_tool` — SMB share enumeration
-- `smbclient_tool` — SMB session listing
-- `rpcclient_tool` — MSRPC enumeration
-
-**Crypto & TLS**
-- `sslscan_tool` — SSL/TLS configuration scanner
-- `exiftool_tool` — File metadata extraction
-- `binwalk_tool` — Firmware/binary analysis
-
-### 3) Generated raw binary tools (76+, pattern: `<binary>_raw_tool`)
-Raw wrappers are disabled by default. Set `GHOSTMCP_ENABLE_RAW_TOOLS=true` and explicitly list binaries in `GHOSTMCP_RAW_TOOL_ALLOWLIST`. Example: `GHOSTMCP_RAW_TOOL_ALLOWLIST=nmap,testssl.sh`.
-Full list includes: masscan, dnsrecon, dnsenum, fierce, theharvester, recon-ng, dirsearch, hydra, enum4linux-ng, crackmapexec, smbclient, smbmap, rpcclient, searchsploit, exiftool, binwalk, and 60+ more.
-
-### 4) Proxy/Tor Mode (NEW)
-```bash
-export GHOSTMCP_PROXY_MODE=tor          # Tor SOCKS5 (default 127.0.0.1:9050)
-export GHOSTMCP_PROXY_MODE=proxychains  # proxychains4 wrapper
-export GHOSTMCP_PROXY_MODE=torsocks     # torsocks wrapper
-```
-Works for all external tools and internal HTTP/TLS probes.
-
-### 5) Plugin System (NEW)
-```bash
-# Install plugin from PyPI
-pip install ghostmcp-plugin-example
-
-# Or set custom entrypoint group
-export GHOSTMCP_PLUGIN_GROUP=myorg.ghostmcp.plugins
-```
-Develop plugins via the `ghostmcp.plugins` entrypoint. Runtime loading requires `GHOSTMCP_ENABLE_PLUGINS=true` and a matching `GHOSTMCP_PLUGIN_ALLOWLIST`. See [Plugin Development](docs/PLUGINS.md).
-
-## Normalized Assessment Workflows
-
-- `web_surface_assessment_tool` validates scope, probes HTTP security posture, and optionally runs WhatWeb and WAF detection when installed.
-- `tls_posture_assessment_tool` validates the target and port, inspects certificate state and expiration, and optionally runs `sslscan`.
-- `host_exposure_assessment_tool` performs a policy-bounded TCP exposure check over an explicit port list.
-
-Dashboard-created scans use a guarded executor registry rather than arbitrary command arguments. Local file tools require `GHOSTMCP_ALLOWED_FILE_ROOTS`, and scheduled scans use five-field UTC cron expressions.
+- [Documentation index](docs/README.md)
+- [Configuration reference](docs/CONFIGURATION.md)
+- [Deployment guide](docs/DEPLOYMENT.md)
+- [Dashboard and scheduling](docs/DASHBOARD.md)
+- [Operations runbook](docs/RUNBOOK.md)
+- [Plugin development](docs/PLUGINS.md)
+- [Security operations](docs/SECURITY-OPERATIONS.md)
+- [Vulnerability reporting policy](SECURITY.md)
 
 ## Requirements
-- Python 3.11+
-- `mcp` package (installed via this project)
-- Optional: Kali tools on `PATH` for binary-backed tools
-- Dashboard: `pip install -e .[dashboard]`
 
-## Install
+- Python 3.11 or newer
+- The `mcp` package, installed as a project dependency
+- Optional security binaries on `PATH` for curated or raw wrappers
+- Optional dashboard, credential, or secret-manager extras as needed
+
+## Installation
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e .
-# For dashboard:
-pip install -e .[dashboard]
-# For secret managers:
-pip install -e .[hvac,boto3]
+python -m pip install --upgrade pip
+python -m pip install -e .
 ```
 
-## Configuration
-Use `.env.example` as baseline.
+Common optional installations:
 
-### Core Settings
-- `GHOSTMCP_LOG_LEVEL` (default: `INFO`)
-- `GHOSTMCP_LOG_FORMAT` (default: `json`)
-- `GHOSTMCP_RATE_LIMIT_CALLS` (default: `120`)
-- `GHOSTMCP_RATE_LIMIT_WINDOW_SECONDS` (default: `60`)
-- `GHOSTMCP_MAX_PORTS_PER_SCAN` (default: `256`)
-- `GHOSTMCP_CONNECT_TIMEOUT_MS` (default: `1500`)
-- `GHOSTMCP_MAX_CONCURRENT_CONNECTS` (default: `64`)
-- `GHOSTMCP_ALLOW_PRIVATE_ONLY` (default: `true`)
-- `GHOSTMCP_ALLOWED_CIDRS` (optional, comma-separated)
-- `GHOSTMCP_ALLOWED_DOMAINS` (optional, comma-separated)
-- `GHOSTMCP_BLOCKED_PORTS` (default: `22,2375,2376,3389`)
-- `GHOSTMCP_USER_AGENT` (default: `GhostMCP/0.1`)
-- `GHOSTMCP_REQUIRE_ENGAGEMENT_CONTEXT` (default: `true`)
-- `GHOSTMCP_MAX_TOOL_LEVEL` (`passive|active|intrusive`, default: `active`)
-- `GHOSTMCP_TRANSPORT_MODE` (`stdio|remote_gateway`, default: `stdio`)
-- `GHOSTMCP_AUTH_MODE` (`none|token|mtls`, default: `none`)
-- `GHOSTMCP_AUTH_TOKEN` (required for token mode)
-- `GHOSTMCP_ALLOW_INSECURE_REMOTE_NO_AUTH` (default: `false`)
-- `GHOSTMCP_MTLS_CA_CERT_PATH`, `GHOSTMCP_MTLS_CERT_PATH`, `GHOSTMCP_MTLS_KEY_PATH`
-- `GHOSTMCP_HTTP_HOST`, `GHOSTMCP_HTTP_PORT` (remote gateway bind)
-- `GHOSTMCP_UVICORN_LOG_LEVEL` (default: `info`)
-- `GHOSTMCP_MAX_PASSIVE_PARALLEL`, `GHOSTMCP_MAX_ACTIVE_PARALLEL`, `GHOSTMCP_MAX_INTRUSIVE_PARALLEL`
-- `GHOSTMCP_MAX_RAW_ARG_COUNT`, `GHOSTMCP_MAX_RAW_ARG_LENGTH`, `GHOSTMCP_MAX_RAW_RUNTIME_SECONDS`
-- `GHOSTMCP_MAX_RAW_STDOUT_BYTES`, `GHOSTMCP_MAX_RAW_STDERR_BYTES`
-- `GHOSTMCP_AUDIT_SINK_PATH` (JSONL sink for SIEM)
-- `GHOSTMCP_ALLOW_RUN_AS_ROOT` (default: `false`)
-
-### Proxy/Tor (NEW)
-- `GHOSTMCP_PROXY_MODE` (`none|tor|proxychains|torsocks`, default: `none`)
-- `GHOSTMCP_TOR_HOST` (default: `127.0.0.1`)
-- `GHOSTMCP_TOR_PORT` (default: `9050`)
-
-### Credential Store (NEW)
-- `GHOSTMCP_CREDENTIAL_STORE` (default: `credentials.json`)
-- `GHOSTMCP_CRED_ENCRYPTED` (default: `false`)
-- `GHOSTMCP_CRED_PASSWORD` (for encrypted mode)
-- `GHOSTMCP_CRED_SALT` (PBKDF2 salt, default: `ghostmcp-salt`)
-
-### Secret Managers (NEW)
-- `VAULT_ADDR`, `VAULT_TOKEN` (HashiCorp Vault)
-- `AWS_REGION` (AWS Secrets Manager)
-- `GCP_PROJECT_ID` (GCP Secret Manager)
-
-### Database (NEW)
-- `GHOSTMCP_DB_TYPE` (`sqlite|postgres`, default: `sqlite`)
-- `GHOSTMCP_DB_PATH` (default: `ghostmcp.db`)
-- `GHOSTMCP_DB_DSN` (PostgreSQL connection string)
-
-## Run
 ```bash
-# MCP server (stdio)
+# Dashboard and encrypted local credentials
+python -m pip install -e ".[dashboard,credentials]"
+
+# Development and tests
+python -m pip install -e ".[dev,dashboard,credentials]"
+
+# One external secret-manager backend
+python -m pip install -e ".[vault]"
+python -m pip install -e ".[aws]"
+python -m pip install -e ".[gcp]"
+```
+
+## Local MCP server
+
+The default transport is local stdio:
+
+```bash
+export GHOSTMCP_ALLOWED_CIDRS=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+export GHOSTMCP_REQUIRE_ENGAGEMENT_CONTEXT=true
+export GHOSTMCP_MAX_TOOL_LEVEL=active
 ghostmcp
+```
 
-# Web dashboard (NEW)
+Configure your MCP client to start the `ghostmcp` command. Keep the environment explicit instead of relying on shell-wide defaults.
+
+## Remote gateway
+
+Remote mode fails closed unless authentication is configured or the explicit insecure override is enabled.
+
+Bearer-token example:
+
+```bash
+export GHOSTMCP_TRANSPORT_MODE=remote_gateway
+export GHOSTMCP_AUTH_MODE=token
+export GHOSTMCP_AUTH_TOKEN="replace-with-a-long-random-token"
+export GHOSTMCP_HTTP_HOST=127.0.0.1
+export GHOSTMCP_HTTP_PORT=8000
+ghostmcp
+```
+
+Clients authenticate at the HTTP transport with:
+
+```text
+Authorization: Bearer <token>
+```
+
+The token is not exposed as an MCP tool argument. For network-accessible deployments, prefer mTLS, bind to an internal interface, and restrict the port with a firewall or private overlay network.
+
+See [Deployment](docs/DEPLOYMENT.md) and [Security operations](docs/SECURITY-OPERATIONS.md).
+
+## Dashboard
+
+```bash
+python -m pip install -e ".[dashboard]"
+export GHOSTMCP_DASHBOARD_TOKEN="replace-with-a-long-random-token"
+export GHOSTMCP_DB_PATH="$PWD/ghostmcp.db"
 ghostmcp-dashboard
-# http://127.0.0.1:8080
 ```
 
-## MCP Client Example (Claude Desktop)
-```json
-{
-  "mcpServers": {
-    "ghostmcp": {
-      "command": "ghostmcp",
-      "env": {
-        "GHOSTMCP_ALLOW_PRIVATE_ONLY": "true",
-        "GHOSTMCP_ALLOWED_CIDRS": "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16",
-        "GHOSTMCP_ALLOWED_DOMAINS": "example.com",
-        "GHOSTMCP_PROXY_MODE": "tor"
-      }
-    }
-  }
-}
+The dashboard binds to `127.0.0.1:8080` by default. It contains one in-process worker and one scheduler. Schedule claims are durable and leased in SQLite, but work that is already queued in memory is not restored after a process crash.
+
+Run one dashboard instance unless all instances share the same database and compatible file-root policy. See [Dashboard and scheduling](docs/DASHBOARD.md).
+
+## Normalized assessment workflows
+
+- `web_surface_assessment_tool` validates scope, checks HTTP posture, and optionally runs WhatWeb and WAF detection when available.
+- `tls_posture_assessment_tool` validates the host and port, checks certificate state and expiry, and optionally runs `sslscan`.
+- `host_exposure_assessment_tool` performs a policy-bounded TCP exposure check over an explicit port list.
+
+These workflows provide stable, typed entry points without requiring an agent to assemble many low-level calls.
+
+## Curated external tools
+
+Curated wrappers register only when their binaries are available. Examples include nmap, WhatWeb, Nikto, Amass, Gobuster, Nuclei, ffuf, Feroxbuster, Subfinder, dnsx, sqlmap, sslscan, sslyze, TruffleHog, Gitleaks, SMB utilities, and metadata-analysis tools.
+
+Availability is environment-dependent. Use `toolchain_status_tool` to inspect installed, missing, enabled, and disabled integrations.
+
+## Raw binary wrappers
+
+Raw wrappers are disabled by default. Enabling the feature does not enable every discovered binary. Each binary must also appear in the allowlist.
+
+```bash
+export GHOSTMCP_ENABLE_RAW_TOOLS=true
+export GHOSTMCP_RAW_TOOL_ALLOWLIST=nmap,testssl.sh
 ```
 
-## Engagement Model
-Most tools accept:
-- `engagement_id` (optional unless required by policy)
-- `engagement_mode` (`default`, `passive`, `active`, `intrusive`); `default` = `passive`
+Raw wrappers remain subject to engagement context, tool-level ceilings, argument limits, runtime limits, output limits, and audit logging. They should be enabled sparingly.
 
-Authorization enforces:
-- Global max tool level (`GHOSTMCP_MAX_TOOL_LEVEL`)
-- Per-call engagement mode ceiling
-- Auth policy for remote mode
-- Hard block on `remote_gateway + AUTH_MODE=none` (unless override)
+## Plugins
 
-## Audit & Safety
-- Structured JSON logs
-- Per-call audit entries using canonical JSON and a persistent hash chain (`prev_hash`, `event_hash`)
-- Optional HMAC signatures using `GHOSTMCP_AUDIT_HMAC_KEY_FILE`
-- Optional JSONL audit sink (`GHOSTMCP_AUDIT_SINK_PATH`)
-- Per-tool runtime metrics (`metrics_tool`)
-- Runtime orchestration probe (`runtime_probe_tool`)
+Plugins are disabled by default and loaded by entry-point name only when allowlisted.
 
-Scope controls:
-- Target/private network validation
-- Optional domain/CIDR allowlists
-- Port policy enforcement
-- Raw-tool argument policy (allowlisted tokens/flags, length/count limits)
-- Runtime/output caps + forced subprocess termination on timeout
-- Per-tool-class concurrency controls (passive/active/intrusive semaphores)
+```bash
+export GHOSTMCP_ENABLE_PLUGINS=true
+export GHOSTMCP_PLUGIN_GROUP=ghostmcp.plugins
+export GHOSTMCP_PLUGIN_ALLOWLIST=my-approved-plugin
+```
 
-## Inspect Runtime Availability
-- `toolchain_status_tool` — installed/missing binaries + enabled tools
-- `server_health_tool` — policy/config snapshot + toolchain summary
-- `metrics_tool` — call/failure/timeout/deny statistics
-- `runtime_probe_tool` — readiness/liveness state
+See [Plugin development](docs/PLUGINS.md) for the entry-point contract and deployment checklist.
+
+## Credential storage
+
+Credential storage defaults to `disabled`. Select a backend explicitly:
+
+```bash
+# Encrypted local file
+export GHOSTMCP_CREDENTIAL_BACKEND=encrypted
+export GHOSTMCP_CREDENTIAL_STORE="$HOME/.local/state/ghostmcp/credentials.bin"
+export GHOSTMCP_CRED_KEY_FILE="$HOME/.config/ghostmcp/credential.key"
+```
+
+Supported backend names are `disabled`, `encrypted`, `vault`, `aws`, `gcp`, and `plaintext`. Plaintext storage additionally requires `GHOSTMCP_ALLOW_PLAINTEXT_CREDENTIALS=true` and should be limited to isolated testing.
+
+Use file-mounted secrets or a secret manager in production. Do not commit tokens, passwords, key files, credential stores, or audit HMAC keys.
+
+## Audit chain
+
+Set an audit sink to persist JSONL events:
+
+```bash
+export GHOSTMCP_AUDIT_SINK_PATH=/var/log/ghostmcp/audit.jsonl
+export GHOSTMCP_AUDIT_HMAC_KEY_FILE=/etc/ghostmcp/audit-hmac.key
+export GHOSTMCP_AUDIT_FSYNC=true
+```
+
+Events use canonical JSON, `prev_hash`, and `event_hash`. When an HMAC key is configured, each event is also signed. Protect the audit file and key separately and ship audit output to append-only or centralized storage when possible.
+
+## Configuration baseline
+
+Copy `.env.example` and review every value before deployment. Important defaults:
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `GHOSTMCP_ALLOW_PRIVATE_ONLY` | `true` | Reject public target addresses |
+| `GHOSTMCP_REQUIRE_ENGAGEMENT_CONTEXT` | `true` | Require an engagement ID for guarded calls |
+| `GHOSTMCP_MAX_TOOL_LEVEL` | `active` | Global execution ceiling |
+| `GHOSTMCP_ENABLE_RAW_TOOLS` | `false` | Disable generated raw wrappers |
+| `GHOSTMCP_ENABLE_PLUGINS` | `false` | Disable external plugins |
+| `GHOSTMCP_CREDENTIAL_BACKEND` | `disabled` | Do not load or store credentials |
+| `GHOSTMCP_AUTH_MODE` | `none` | Valid for stdio; remote mode blocks it |
+| `GHOSTMCP_DASHBOARD_ALLOW_UNAUTHENTICATED` | `false` | Require dashboard authentication |
+
+See [Configuration reference](docs/CONFIGURATION.md) for all supported groups and production guidance.
 
 ## Development
+
 ```bash
-# Run tests
-python -m pytest tests/ -v
-
-# Type check
-mypy ghostmcp/ --ignore-missing-imports
-
-# Lint
-ruff check ghostmcp/
-
-# E2E smoke test (opt-in)
-GHOSTMCP_E2E=1 python -m pytest tests/test_e2e_mcp.py -v
+python -m pip install -e ".[dev,dashboard,credentials]"
+ruff check .
+mypy ghostmcp
+bandit -q -r ghostmcp
+pip-audit -r requirements-dev.lock.txt
+python -m unittest discover -s tests -v
+python -m build
 ```
 
-## CI/CD
-GitHub workflows:
-- `.github/workflows/ci.yml`: lint, type-check, tests, bandit, pip-audit, build, trivy
-- `.github/workflows/codeql.yml`: scheduled CodeQL analysis
-- `.github/workflows/release.yml`: tag-triggered build, Twine verify, SBOM, provenance, release, optional PyPI publish
+CI validates Python 3.11 and 3.12, dependency locks, linting, typing, Bandit, dependency advisories, tests, package builds, clean-wheel installation, container construction, Trivy policy, and CodeQL.
 
-## Deployment
-- `deploy/systemd/ghostmcp.service` — systemd service
-- `deploy/container/Dockerfile` — non-root container
-- `deploy/apparmor/ghostmcp.apparmor` — AppArmor confinement
+## Release status
 
-## Runtime Security
-- Non-root enforcement (`GHOSTMCP_ALLOW_RUN_AS_ROOT=false`)
-- Minimal write footprint (logs/audit sink only)
-- Optional AppArmor profile
-
-## Legal
-Use GhostMCP only on systems and networks you are explicitly authorized to assess.
+The package version is `0.2.0a1`. Treat the current interface and operational model as alpha-quality. Review release notes and configuration changes before upgrading.
 
 ## License
-AGPL-3.0-or-later. See [LICENSE](LICENSE).
+
+GhostMCP is licensed under the GNU Affero General Public License v3.0 or later. See [LICENSE](LICENSE).
