@@ -70,33 +70,129 @@ jobs:
           python -m pip install --require-hashes -r requirements-dev.lock.txt
           python -m pip install -e . --no-deps
 
-      - name: Type check
-        run: mypy ghostmcp
+      - name: Collect type-check result
+        id: mypy
+        shell: bash
+        run: |
+          set +e
+          mypy ghostmcp > mypy-output.txt 2>&1
+          status=$?
+          cat mypy-output.txt
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
 
-      - name: Security static scan
-        run: bandit -q -r ghostmcp
+      - name: Upload type-check diagnostics
+        if: steps.mypy.outputs.status != '0'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mypy-py${{ matrix.python-version }}
+          path: mypy-output.txt
 
-      - name: Dependency audit
-        run: pip-audit
+      - name: Enforce type-check result
+        if: steps.mypy.outputs.status != '0'
+        run: exit 1
 
-      - name: Unit and integration tests
-        run: python -m unittest discover -s tests -v
+      - name: Collect static-security result
+        id: bandit
+        shell: bash
+        run: |
+          set +e
+          bandit -q -r ghostmcp > bandit-output.txt 2>&1
+          status=$?
+          cat bandit-output.txt
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Upload static-security diagnostics
+        if: steps.bandit.outputs.status != '0'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bandit-py${{ matrix.python-version }}
+          path: bandit-output.txt
+
+      - name: Enforce static-security result
+        if: steps.bandit.outputs.status != '0'
+        run: exit 1
+
+      - name: Collect dependency-audit result
+        id: audit
+        shell: bash
+        run: |
+          set +e
+          pip-audit > pip-audit-output.txt 2>&1
+          status=$?
+          cat pip-audit-output.txt
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Upload dependency-audit diagnostics
+        if: steps.audit.outputs.status != '0'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pip-audit-py${{ matrix.python-version }}
+          path: pip-audit-output.txt
+
+      - name: Enforce dependency-audit result
+        if: steps.audit.outputs.status != '0'
+        run: exit 1
+
+      - name: Collect test result
+        id: tests
+        shell: bash
+        run: |
+          set +e
+          python -m unittest discover -s tests -v > test-output.txt 2>&1
+          status=$?
+          cat test-output.txt
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Upload test diagnostics
+        if: steps.tests.outputs.status != '0'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tests-py${{ matrix.python-version }}
+          path: test-output.txt
+
+      - name: Enforce test result
+        if: steps.tests.outputs.status != '0'
+        run: exit 1
 
       - name: Build package artifacts
         run: python -m build
 
-      - name: Verify built wheel in a clean environment
+      - name: Collect wheel smoke-test result
+        id: wheel
+        shell: bash
         run: |
-          python -m venv /tmp/ghostmcp-wheel-smoke
-          /tmp/ghostmcp-wheel-smoke/bin/python -m pip install --upgrade pip
-          /tmp/ghostmcp-wheel-smoke/bin/python -m pip install dist/*.whl jinja2 python-multipart cryptography
-          /tmp/ghostmcp-wheel-smoke/bin/python - <<'PY'
+          set +e
+          {
+            python -m venv /tmp/ghostmcp-wheel-smoke
+            /tmp/ghostmcp-wheel-smoke/bin/python -m pip install --upgrade pip
+            /tmp/ghostmcp-wheel-smoke/bin/python -m pip install dist/*.whl jinja2 python-multipart cryptography
+            /tmp/ghostmcp-wheel-smoke/bin/python - <<'PY'
           from importlib.resources import files
           import ghostmcp.parsers.nmap
           import ghostmcp.dashboard
           assert files("ghostmcp").joinpath("templates/dashboard.html").is_file()
           PY
-          /tmp/ghostmcp-wheel-smoke/bin/ghostmcp --version
+            /tmp/ghostmcp-wheel-smoke/bin/ghostmcp --version
+          } > wheel-output.txt 2>&1
+          status=$?
+          cat wheel-output.txt
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Upload wheel smoke-test diagnostics
+        if: steps.wheel.outputs.status != '0'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wheel-py${{ matrix.python-version }}
+          path: wheel-output.txt
+
+      - name: Enforce wheel smoke-test result
+        if: steps.wheel.outputs.status != '0'
+        run: exit 1
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
