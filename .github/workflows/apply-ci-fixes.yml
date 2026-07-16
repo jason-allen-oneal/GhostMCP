@@ -10,8 +10,6 @@ permissions:
 
 jobs:
   apply:
-    # One-shot branch maintenance job. Removed after the verified patch is applied.
-    if: ${{ hashFiles('.ci/ci-fixes.patch') != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout branch
@@ -22,6 +20,7 @@ jobs:
 
       - name: Apply verified patch
         run: |
+          test -f .ci/ci-fixes.patch
           git apply --check .ci/ci-fixes.patch
           git apply .ci/ci-fixes.patch
           rm .ci/ci-fixes.patch
