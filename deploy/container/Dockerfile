@@ -18,6 +18,7 @@ RUN python -m pip install --no-cache-dir --require-hashes -r /app/requirements.l
 # Copy app source (run from source, do not pip-install the project).
 COPY ghostmcp /app/ghostmcp
 
-EXPOSE 8766
+# The remote gateway defaults to GHOSTMCP_HTTP_PORT=8000.
+EXPOSE 8000
 
 ENTRYPOINT ["python", "-m", "ghostmcp"]
