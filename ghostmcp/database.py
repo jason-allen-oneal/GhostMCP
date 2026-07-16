@@ -7,11 +7,12 @@ import json
 import os
 import sqlite3
 import threading
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterator, Sequence
+from typing import Any
 
 ENGAGEMENT_STATUSES = {"active", "completed", "archived"}
 SCAN_STATUSES = {"pending", "running", "completed", "failed"}

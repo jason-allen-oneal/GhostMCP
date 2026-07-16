@@ -15,7 +15,6 @@ from datetime import UTC, datetime
 from functools import wraps
 from pathlib import Path
 from typing import Any, Literal, cast, get_type_hints
-from urllib.parse import urlparse
 
 from mcp.server.fastmcp import FastMCP
 
@@ -635,18 +634,7 @@ def _audit_tool_call(
 
 
 def _enforce_url_scope(url: str) -> None:
-    parsed = urlparse(url)
-    host = parsed.hostname
-    if not host:
-        raise ValueError("URL host is required")
-    try:
-        # Host is an IP; scope is enforced by host-based tools.
-        from ipaddress import ip_address
-
-        ip_address(host)
-        return
-    except ValueError:
-        policy.enforce_domain_scope(host.lower())
+    policy.validate_url(url)
 
 
 @mcp.tool()

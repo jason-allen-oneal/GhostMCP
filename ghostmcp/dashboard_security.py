@@ -146,7 +146,7 @@ def secure_dashboard_app(app: ASGIApp) -> ASGIApp:
             "Set GHOSTMCP_DASHBOARD_ALLOW_UNAUTHENTICATED=true only for isolated testing."
         )
     if allow_unauthenticated:
-        token = "unused"
+        token = os.urandom(32).hex()
 
     protected = DashboardSecurityMiddleware(
         app, token=token, allow_unauthenticated=allow_unauthenticated

@@ -340,8 +340,6 @@ class SecretManagerCredentialStore:
         self, tool_id: str, target: str | None = None
     ) -> dict[str, Any] | None:
         for scope in ([target, "default"] if target else ["default"]):
-            if scope is None:
-                continue
             raw = self.manager.get_secret(self._name(tool_id, scope))
             if raw is None:
                 continue
