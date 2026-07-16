@@ -1,7 +1,10 @@
 import inspect
+import os
 import sys
 import types
 import unittest
+
+os.environ.setdefault("GHOSTMCP_REQUIRE_ENGAGEMENT_CONTEXT", "false")
 
 if "mcp.server.fastmcp" not in sys.modules:
     mcp_module = types.ModuleType("mcp")
@@ -41,6 +44,14 @@ class ToolSignatureTests(unittest.TestCase):
         self.assertIn("engagement_id", sig.parameters)
         self.assertNotIn("args", sig.parameters)
         self.assertNotIn("kwargs", sig.parameters)
+
+    def test_transport_auth_token_is_not_exposed_in_tool_schema(self) -> None:
+        self.assertNotIn(
+            "auth_token", inspect.signature(server.runtime_probe_tool).parameters
+        )
+        self.assertNotIn(
+            "auth_token", inspect.signature(server.dns_lookup_tool).parameters
+        )
 
 
 if __name__ == "__main__":

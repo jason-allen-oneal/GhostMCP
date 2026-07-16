@@ -33,7 +33,11 @@ class SecurityPolicyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.policy.validate_target("google-public-dns-a.google.com")
 
-    def test_validate_domain_respects_allowed_domains(self) -> None:
+    @patch("socket.getaddrinfo")
+    def test_validate_domain_respects_allowed_domains(self, mock_getaddrinfo) -> None:
+        mock_getaddrinfo.return_value = [
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.0.0.1", 0))
+        ]
         policy = SecurityPolicy(ServerConfig(allowed_domains=("example.com",)))
         self.assertEqual(policy.validate_domain("api.example.com"), "api.example.com")
         with self.assertRaises(ValueError):

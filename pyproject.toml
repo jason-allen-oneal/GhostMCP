@@ -1,24 +1,33 @@
 [build-system]
-requires = ["setuptools>=69", "wheel"]
+requires = ["setuptools>=83", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "ghostmcp-server"
-version = "0.1.0"
-description = "Production-ready cybersecurity tooling MCP server for AI agents"
+version = "0.2.0a1"
+description = "Security-focused MCP server for authorized assessment workflows"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "GhostMCP" }]
-license = { text = "AGPL-3.0-or-later" }
+license = "AGPL-3.0-or-later"
 classifiers = [
-  "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Security",
 ]
 dependencies = [
   "mcp>=1.2.0",
   "defusedxml>=0.7.1",
   "fastapi>=0.109.0",
   "uvicorn>=0.29.0",
-  "jinja2>=3.1.0",
+  "msgpack>=1.2.1",
+  "pydantic-settings>=2.14.2",
+  "starlette>=1.3.1",
+  "pyjwt>=2.13.0",
+  "cryptography>=48.0.1",
+  "python-multipart>=0.0.30",
 ]
 
 [project.optional-dependencies]
@@ -29,13 +38,32 @@ dev = [
   "bandit>=1.7.0",
   "pip-audit>=2.7.0",
   "build>=1.2.0",
-  "hvac>=2.0.0",
-  "boto3>=1.34.0",
+  "twine>=5.0.0",
+  "setuptools>=83",
 ]
 dashboard = [
-  "fastapi>=0.109.0",
-  "uvicorn>=0.29.0",
   "jinja2>=3.1.0",
+  "python-multipart>=0.0.30",
+]
+credentials = [
+  "cryptography>=48.0.1",
+]
+release = [
+  "build>=1.2.0",
+  "twine>=5.0.0",
+  "setuptools>=83",
+]
+vault = [
+  "cryptography>=48.0.1",
+  "hvac>=2.0.0",
+]
+aws = [
+  "cryptography>=48.0.1",
+  "boto3>=1.34.0",
+]
+gcp = [
+  "cryptography>=48.0.1",
+  "google-cloud-secret-manager>=2.20.0",
 ]
 
 [project.scripts]
@@ -66,5 +94,11 @@ warn_redundant_casts = true
 warn_unreachable = true
 exclude = ["^tests/"]
 
-[tool.setuptools]
-packages = ["ghostmcp"]
+[tool.setuptools.packages.find]
+include = ["ghostmcp*"]
+
+[tool.setuptools.package-data]
+ghostmcp = [
+  "templates/**/*.html",
+  "static/**/*",
+]

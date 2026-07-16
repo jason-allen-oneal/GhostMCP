@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import inspect
 import json
 import logging
@@ -15,13 +14,14 @@ from datetime import UTC, datetime
 from functools import wraps
 from pathlib import Path
 from typing import Any, Literal, cast, get_type_hints
-from urllib.parse import urlparse
 
 from mcp.server.fastmcp import FastMCP
 
 from . import __version__
+from .audit import AuditChain, load_hmac_key, verify_audit_log
 from .config import load_config
 from .logging_utils import configure_logging
+from .plugins import get_plugin_manager, load_all_plugins, register_plugin_tools
 from .rate_limit import SlidingWindowRateLimiter
 from .scanners import (
     ScannerError,
@@ -71,7 +71,6 @@ from .scanners import (
     tls_certificate_expiry,
     trufflehog_scan,
     url_risk_score,
-    verify_audit_log_integrity,
     wafw00f_scan,
     wfuzz_scan,
     whatweb_scan,
@@ -79,6 +78,12 @@ from .scanners import (
     wpscan_scan,
 )
 from .security import SecurityPolicy
+from .transport_security import TransportAuthMiddleware, get_transport_principal
+from .workflows import (
+    host_exposure_assessment,
+    tls_posture_assessment,
+    web_surface_assessment,
+)
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -86,6 +91,23 @@ logger = logging.getLogger(__name__)
 
 def _env(name: str, default: str) -> str:
     return os.getenv(f"GHOSTMCP_{name}", default)
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = _env(name, "true" if default else "false").strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    raise RuntimeError(f"Invalid boolean value for GHOSTMCP_{name}: {value}")
+
+
+def _env_csv(name: str) -> set[str]:
+    return {
+        value.strip()
+        for value in _env(name, "").split(",")
+        if value.strip()
+    }
 
 
 cfg = load_config()
@@ -107,11 +129,19 @@ mcp = FastMCP(
 ToolLevel = Literal["passive", "active", "intrusive"]
 EngagementMode = Literal["default", "passive", "active", "intrusive"]
 TOOL_LEVELS = {"passive": 1, "active": 2, "intrusive": 3}
-_audit_lock = threading.Lock()
-_last_audit_hash = "0" * 64
+CORE_TOOL_COUNT = 20
 _metrics_lock = threading.Lock()
 _shutdown_event = threading.Event()
 AUDIT_SINK_PATH = _env("AUDIT_SINK_PATH", "").strip()
+AUDIT_HMAC_KEY = load_hmac_key(
+    key_value=_env("AUDIT_HMAC_KEY", "").strip(),
+    key_file=_env("AUDIT_HMAC_KEY_FILE", "").strip(),
+)
+AUDIT_CHAIN = AuditChain(
+    AUDIT_SINK_PATH,
+    hmac_key=AUDIT_HMAC_KEY,
+    fsync=_env_bool("AUDIT_FSYNC", False),
+)
 
 TRANSPORT_MODE = _env("TRANSPORT_MODE", "stdio").strip().lower()
 AUTH_MODE = _env("AUTH_MODE", "none").strip().lower()
@@ -126,11 +156,13 @@ ALLOW_INSECURE_REMOTE_NO_AUTH = _env("ALLOW_INSECURE_REMOTE_NO_AUTH", "false").s
     "true",
     "yes",
 }
-ALLOW_RUN_AS_ROOT = _env("ALLOW_RUN_AS_ROOT", "false").strip().lower() in {
-    "1",
-    "true",
-    "yes",
-}
+ALLOW_RUN_AS_ROOT = _env_bool("ALLOW_RUN_AS_ROOT", False)
+ENABLE_RAW_TOOLS = _env_bool("ENABLE_RAW_TOOLS", False)
+RAW_TOOL_ALLOWLIST = _env_csv("RAW_TOOL_ALLOWLIST")
+ENABLE_PLUGINS = _env_bool("ENABLE_PLUGINS", False)
+PLUGIN_ALLOWLIST = _env_csv("PLUGIN_ALLOWLIST")
+PLUGIN_GROUP = _env("PLUGIN_GROUP", "ghostmcp.plugins").strip()
+PLUGIN_REGISTRATION: dict[str, list[str]] = {}
 
 TOOL_CLASS_LIMITS = {
     "passive": threading.Semaphore(int(_env("MAX_PASSIVE_PARALLEL", "64"))),
@@ -290,10 +322,20 @@ BINARY_MCP_TOOL_BINARIES = {
     **SUPPORTED_EXTERNAL_TOOL_BINARIES,
     **DYNAMIC_KALI_RAW_TOOL_BINARIES,
 }
-ENABLED_BINARY_MCP_TOOLS = sorted(
+ENABLED_CURATED_MCP_TOOLS = sorted(
     tool_name
-    for tool_name, binary in BINARY_MCP_TOOL_BINARIES.items()
+    for tool_name, binary in SUPPORTED_EXTERNAL_TOOL_BINARIES.items()
     if KALI_TOOLCHAIN_SNAPSHOT.get(binary, {}).get("installed")
+)
+ENABLED_RAW_MCP_TOOLS = sorted(
+    tool_name
+    for tool_name, binary in DYNAMIC_KALI_RAW_TOOL_BINARIES.items()
+    if ENABLE_RAW_TOOLS
+    and binary in RAW_TOOL_ALLOWLIST
+    and KALI_TOOLCHAIN_SNAPSHOT.get(binary, {}).get("installed")
+)
+ENABLED_BINARY_MCP_TOOLS = sorted(
+    {*ENABLED_CURATED_MCP_TOOLS, *ENABLED_RAW_MCP_TOOLS}
 )
 
 
@@ -301,6 +343,19 @@ def _validate_runtime_security() -> None:
     if hasattr(os, "geteuid") and os.geteuid() == 0 and not ALLOW_RUN_AS_ROOT:
         raise RuntimeError(
             "Refusing to run as root. Set GHOSTMCP_ALLOW_RUN_AS_ROOT=true to override."
+        )
+    unknown_raw_tools = RAW_TOOL_ALLOWLIST - set(KALI_COMMON_TOOL_BINARIES)
+    if unknown_raw_tools:
+        raise RuntimeError(
+            f"Unknown raw-tool allowlist entries: {sorted(unknown_raw_tools)}"
+        )
+    if ENABLE_RAW_TOOLS and not RAW_TOOL_ALLOWLIST:
+        raise RuntimeError(
+            "Raw tools were enabled without GHOSTMCP_RAW_TOOL_ALLOWLIST"
+        )
+    if ENABLE_PLUGINS and not PLUGIN_ALLOWLIST:
+        raise RuntimeError(
+            "Plugins were enabled without GHOSTMCP_PLUGIN_ALLOWLIST"
         )
 
 
@@ -407,6 +462,8 @@ def _instrument_tool(tool_name: str, tool_level: ToolLevel):
         # FastMCP inspects function signatures for tool schemas; preserve original params.
         resolved_params = []
         for name, param in fn_signature.parameters.items():
+            if name == "auth_token":
+                continue
             annotation = resolved_hints.get(name, param.annotation)
             resolved_params.append(param.replace(annotation=annotation))
         resolved_return = resolved_hints.get("return", fn_signature.return_annotation)
@@ -486,7 +543,12 @@ def _optional_binary_tool(tool_name: str):
 
 
 def _register_dynamic_kali_raw_tools() -> None:
+    if not ENABLE_RAW_TOOLS:
+        logger.info("Raw Kali tool registration is disabled")
+        return
     for tool_name, binary in DYNAMIC_KALI_RAW_TOOL_BINARIES.items():
+        if binary not in RAW_TOOL_ALLOWLIST:
+            continue
         if not KALI_TOOLCHAIN_SNAPSHOT.get(binary, {}).get("installed"):
             continue
 
@@ -578,10 +640,16 @@ def _authorize(
     if cfg.require_engagement_context and not engagement_id:
         _record_call_denied(tool_name)
         raise ValueError("engagement_id is required by policy")
-    if TRANSPORT_MODE == "remote_gateway":
-        if AUTH_MODE == "token" and auth_token != AUTH_TOKEN:
-            _record_call_denied(tool_name)
-            raise PermissionError("Invalid auth token")
+
+    principal = get_transport_principal()
+    if TRANSPORT_MODE == "remote_gateway" and principal is None:
+        _record_call_denied(tool_name)
+        raise PermissionError("Remote transport authentication is required")
+    if auth_token is not None:
+        logger.warning(
+            "Ignoring deprecated tool-level auth_token for %s; use HTTP Authorization",
+            tool_name,
+        )
 
     configured_max = cfg.max_tool_level
     if configured_max not in TOOL_LEVELS:
@@ -601,6 +669,7 @@ def _authorize(
         "engagement_id": engagement_id or "unspecified",
         "engagement_mode": normalized_engagement_mode,
         "tool_level": normalized_tool_level,
+        "principal_id": principal.principal_id if principal else "stdio:local",
     }
 
 
@@ -609,44 +678,22 @@ def _audit_tool_call(
     context: dict,
     target: str | None = None,
 ) -> None:
-    global _last_audit_hash
-    now = datetime.now(UTC).isoformat()
-    with _audit_lock:
-        payload = {
-            "ts": now,
+    event = AUDIT_CHAIN.append(
+        {
+            "ts": datetime.now(UTC).isoformat(),
             "tool": tool_name,
             "engagement_id": context["engagement_id"],
             "engagement_mode": context["engagement_mode"],
             "tool_level": context["tool_level"],
+            "principal_id": context["principal_id"],
             "target": target,
-            "prev_hash": _last_audit_hash,
         }
-        serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-        new_hash = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
-        payload["event_hash"] = new_hash
-        _last_audit_hash = new_hash
-    logger.info("audit %s", json.dumps(payload, separators=(",", ":")))
-    if AUDIT_SINK_PATH:
-        try:
-            with open(AUDIT_SINK_PATH, "a", encoding="utf-8") as sink:
-                sink.write(json.dumps(payload, separators=(",", ":")) + "\n")
-        except Exception:
-            logger.exception("failed to write audit sink: %s", AUDIT_SINK_PATH)
+    )
+    logger.info("audit %s", json.dumps(event, separators=(",", ":")))
 
 
 def _enforce_url_scope(url: str) -> None:
-    parsed = urlparse(url)
-    host = parsed.hostname
-    if not host:
-        raise ValueError("URL host is required")
-    try:
-        # Host is an IP; scope is enforced by host-based tools.
-        from ipaddress import ip_address
-
-        ip_address(host)
-        return
-    except ValueError:
-        policy.enforce_domain_scope(host.lower())
+    policy.validate_url(url)
 
 
 @mcp.tool()
@@ -1089,6 +1136,7 @@ def metrics_tool(
 
 
 @mcp.tool()
+@_instrument_tool("verify_audit_log_integrity_tool", "passive")
 def verify_audit_log_integrity_tool(
     engagement_id: str | None = None,
     engagement_mode: EngagementMode = "passive",
@@ -1101,7 +1149,7 @@ def verify_audit_log_integrity_tool(
     if not AUDIT_SINK_PATH:
         return {"status": "error", "message": "Audit sink is not enabled"}
     _audit_tool_call("verify_audit_log_integrity_tool", context)
-    return verify_audit_log_integrity(AUDIT_SINK_PATH)
+    return verify_audit_log(AUDIT_SINK_PATH, AUDIT_HMAC_KEY)
 
 
 @_optional_binary_tool("sqlmap_tool")
@@ -1553,6 +1601,72 @@ def gitleaks_tool(
 
 
 @mcp.tool()
+@_instrument_tool("web_surface_assessment_tool", "active")
+def web_surface_assessment_tool(
+    url: str,
+    engagement_id: str | None = None,
+    engagement_mode: EngagementMode = "active",
+    auth_token: str | None = None,
+) -> dict:
+    """Run a normalized web surface assessment using available guarded probes."""
+    context = _authorize(
+        "web_surface_assessment_tool",
+        "active",
+        engagement_id,
+        engagement_mode,
+        auth_token,
+    )
+    _audit_tool_call("web_surface_assessment_tool", context, target=url)
+    return web_surface_assessment(policy, url, cfg.user_agent)
+
+
+@mcp.tool()
+@_instrument_tool("tls_posture_assessment_tool", "active")
+def tls_posture_assessment_tool(
+    host: str,
+    port: int = 443,
+    engagement_id: str | None = None,
+    engagement_mode: EngagementMode = "active",
+    auth_token: str | None = None,
+) -> dict:
+    """Run certificate, expiry, and optional sslscan checks as one workflow."""
+    context = _authorize(
+        "tls_posture_assessment_tool",
+        "active",
+        engagement_id,
+        engagement_mode,
+        auth_token,
+    )
+    _audit_tool_call(
+        "tls_posture_assessment_tool", context, target=f"{host}:{port}"
+    )
+    return tls_posture_assessment(policy, host, port)
+
+
+@mcp.tool()
+@_instrument_tool("host_exposure_assessment_tool", "intrusive")
+def host_exposure_assessment_tool(
+    host: str,
+    ports: list[int],
+    engagement_id: str | None = None,
+    engagement_mode: EngagementMode = "intrusive",
+    auth_token: str | None = None,
+) -> dict:
+    """Run a policy-bounded TCP exposure assessment with normalized output."""
+    context = _authorize(
+        "host_exposure_assessment_tool",
+        "intrusive",
+        engagement_id,
+        engagement_mode,
+        auth_token,
+    )
+    _audit_tool_call("host_exposure_assessment_tool", context, target=host)
+    return host_exposure_assessment(
+        policy, host, ports, cfg.connect_timeout_ms
+    )
+
+
+@mcp.tool()
 @_instrument_tool("runtime_probe_tool", "passive")
 def runtime_probe_tool(
     engagement_id: str | None = None,
@@ -1570,7 +1684,11 @@ def runtime_probe_tool(
         "uptime_seconds": int((datetime.now(UTC) - STARTED_AT).total_seconds()),
         "transport_mode": TRANSPORT_MODE,
         "auth_mode": AUTH_MODE,
-        "tool_count_enabled": len(ENABLED_BINARY_MCP_TOOLS) + 16,
+        "tool_count_enabled": (
+            len(ENABLED_BINARY_MCP_TOOLS)
+            + CORE_TOOL_COUNT
+            + sum(len(names) for names in PLUGIN_REGISTRATION.values())
+        ),
     }
 
 
@@ -1599,9 +1717,16 @@ def server_health_tool(
             "transport_mode": TRANSPORT_MODE,
             "auth_mode": AUTH_MODE,
             "audit_sink_path": AUDIT_SINK_PATH or None,
+            "audit_signed": AUDIT_CHAIN.signed,
+            "raw_tools_enabled": ENABLE_RAW_TOOLS,
+            "raw_tool_allowlist": sorted(RAW_TOOL_ALLOWLIST),
+            "plugins_enabled": ENABLE_PLUGINS,
+            "plugin_allowlist": sorted(PLUGIN_ALLOWLIST),
         },
         "toolchain": {
             "enabled_binary_mcp_tools": ENABLED_BINARY_MCP_TOOLS,
+            "enabled_curated_mcp_tools": ENABLED_CURATED_MCP_TOOLS,
+            "enabled_raw_mcp_tools": ENABLED_RAW_MCP_TOOLS,
             "binary_mcp_tool_count": len(BINARY_MCP_TOOL_BINARIES),
             "installed_common_kali_tool_count": sum(
                 1
@@ -1610,6 +1735,7 @@ def server_health_tool(
             ),
             "common_kali_tool_count": len(KALI_TOOLCHAIN_SNAPSHOT),
         },
+        "plugins": get_plugin_manager().list_plugins(),
         "runtime": {
             "started_at": STARTED_AT.isoformat(),
             "uptime_seconds": int((datetime.now(UTC) - STARTED_AT).total_seconds()),
@@ -1618,7 +1744,16 @@ def server_health_tool(
     }
 
 
+def _register_plugins() -> None:
+    if not ENABLE_PLUGINS:
+        logger.info("External plugin loading is disabled")
+        return
+    load_all_plugins(PLUGIN_GROUP, allowlist=PLUGIN_ALLOWLIST)
+    PLUGIN_REGISTRATION.update(register_plugin_tools(mcp))
+
+
 _register_dynamic_kali_raw_tools()
+_register_plugins()
 
 
 def main() -> None:
@@ -1636,7 +1771,7 @@ def main() -> None:
         }
     )
     enabled_display = ", ".join(enabled_bins) if enabled_bins else "none"
-    core_tool_count = 16
+    core_tool_count = CORE_TOOL_COUNT
     total_enabled_tools = (
         core_tool_count
         + len(ENABLED_BINARY_MCP_TOOLS)
@@ -1672,7 +1807,12 @@ def main() -> None:
         else:
             import uvicorn
 
-            app = mcp.streamable_http_app()
+            app = TransportAuthMiddleware(
+                mcp.streamable_http_app(),
+                auth_mode=AUTH_MODE,
+                token=AUTH_TOKEN,
+                allow_insecure_none=ALLOW_INSECURE_REMOTE_NO_AUTH,
+            )
             uvicorn_kwargs: dict[str, Any] = {
                 "host": HTTP_HOST,
                 "port": HTTP_PORT,

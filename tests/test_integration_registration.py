@@ -1,6 +1,9 @@
+import os
 import sys
 import types
 import unittest
+
+os.environ.setdefault("GHOSTMCP_REQUIRE_ENGAGEMENT_CONTEXT", "false")
 
 if "mcp.server.fastmcp" not in sys.modules:
     mcp_module = types.ModuleType("mcp")

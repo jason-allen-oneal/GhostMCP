@@ -1,7 +1,10 @@
+import os
 import sys
 import types
 import unittest
 from unittest.mock import patch
+
+os.environ.setdefault("GHOSTMCP_REQUIRE_ENGAGEMENT_CONTEXT", "false")
 
 if "mcp.server.fastmcp" not in sys.modules:
     mcp_module = types.ModuleType("mcp")
@@ -116,7 +119,8 @@ class NewServerToolsTests(unittest.TestCase):
         self.assertIn("admin.example.com", result["candidates"])
 
     @patch("ghostmcp.server.rate_limiter.allow", return_value=True)
-    def test_common_web_paths_tool(self, _allow) -> None:
+    @patch("ghostmcp.server.policy.validate_url", return_value="https://app.example.com")
+    def test_common_web_paths_tool(self, _validate_url, _allow) -> None:
         result = common_web_paths_tool("https://app.example.com", profile="light")
         self.assertEqual(result["profile"], "light")
         self.assertIn("https://app.example.com/robots.txt", result["urls"])
@@ -149,13 +153,20 @@ class NewServerToolsTests(unittest.TestCase):
             "stderr": "",
             "host": "10.0.0.8",
         }
-        result = nmap_service_scan_tool("internal.example", top_ports=100)
+        with patch(
+            "ghostmcp.server.cfg",
+            types.SimpleNamespace(
+                require_engagement_context=False, max_tool_level="intrusive"
+            ),
+        ):
+            result = nmap_service_scan_tool("internal.example", top_ports=100)
         self.assertEqual(result["tool"], "nmap")
         self.assertEqual(result["host"], "10.0.0.8")
 
     @patch("ghostmcp.server.rate_limiter.allow", return_value=True)
+    @patch("ghostmcp.server.policy.validate_url", return_value="https://app.example.com")
     @patch("ghostmcp.server.whatweb_scan")
-    def test_whatweb_tool(self, mock_whatweb, _allow) -> None:
+    def test_whatweb_tool(self, mock_whatweb, _validate_url, _allow) -> None:
         mock_whatweb.return_value = {
             "tool": "whatweb",
             "command": ["whatweb", "--color=never", "https://app.example.com"],
@@ -170,8 +181,9 @@ class NewServerToolsTests(unittest.TestCase):
         self.assertEqual(result["url"], "https://app.example.com")
 
     @patch("ghostmcp.server.rate_limiter.allow", return_value=True)
+    @patch("ghostmcp.server.policy.validate_url", return_value="https://app.example.com")
     @patch("ghostmcp.server.nikto_scan")
-    def test_nikto_tool(self, mock_nikto, _allow) -> None:
+    def test_nikto_tool(self, mock_nikto, _validate_url, _allow) -> None:
         mock_nikto.return_value = {
             "tool": "nikto",
             "command": ["nikto", "-host", "https://app.example.com", "-Format", "txt"],
@@ -181,7 +193,13 @@ class NewServerToolsTests(unittest.TestCase):
             "stderr": "",
             "url": "https://app.example.com",
         }
-        result = nikto_tool("https://app.example.com")
+        with patch(
+            "ghostmcp.server.cfg",
+            types.SimpleNamespace(
+                require_engagement_context=False, max_tool_level="intrusive"
+            ),
+        ):
+            result = nikto_tool("https://app.example.com")
         self.assertEqual(result["tool"], "nikto")
         self.assertEqual(result["url"], "https://app.example.com")
 
@@ -205,8 +223,9 @@ class NewServerToolsTests(unittest.TestCase):
         self.assertEqual(result["domain"], "example.com")
 
     @patch("ghostmcp.server.rate_limiter.allow", return_value=True)
+    @patch("ghostmcp.server.policy.validate_url", return_value="https://app.example.com")
     @patch("ghostmcp.server.gobuster_dir_scan")
-    def test_gobuster_dir_tool(self, mock_gobuster, _allow) -> None:
+    def test_gobuster_dir_tool(self, mock_gobuster, _validate_url, _allow) -> None:
         mock_gobuster.return_value = {
             "tool": "gobuster",
             "command": ["gobuster", "dir"],
@@ -217,7 +236,13 @@ class NewServerToolsTests(unittest.TestCase):
             "url": "https://app.example.com",
             "wordlist": "/usr/share/wordlists/dirb/common.txt",
         }
-        result = gobuster_dir_tool("https://app.example.com")
+        with patch(
+            "ghostmcp.server.cfg",
+            types.SimpleNamespace(
+                require_engagement_context=False, max_tool_level="intrusive"
+            ),
+        ):
+            result = gobuster_dir_tool("https://app.example.com")
         self.assertEqual(result["tool"], "gobuster")
         self.assertEqual(result["url"], "https://app.example.com")
 
@@ -243,8 +268,9 @@ class NewServerToolsTests(unittest.TestCase):
         self.assertEqual(result["host"], "10.0.0.9")
 
     @patch("ghostmcp.server.rate_limiter.allow", return_value=True)
+    @patch("ghostmcp.server.policy.validate_url", return_value="https://app.example.com")
     @patch("ghostmcp.server.wafw00f_scan")
-    def test_wafw00f_tool(self, mock_wafw00f, _allow) -> None:
+    def test_wafw00f_tool(self, mock_wafw00f, _validate_url, _allow) -> None:
         mock_wafw00f.return_value = {
             "tool": "wafw00f",
             "command": ["wafw00f", "https://app.example.com"],

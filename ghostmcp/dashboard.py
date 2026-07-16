@@ -1,7 +1,10 @@
 """Web dashboard for GhostMCP - FastAPI + HTMX."""
 
 import json
+import os
 import uuid
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Form, HTTPException, Request
@@ -10,17 +13,42 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .database import get_database
+from .execution import ScanScheduler, ScanWorker, available_dashboard_tools
+from .scheduling import CronExpression
 
-app = FastAPI(title="GhostMCP Dashboard", version="1.0.0")
+_db = None
+_worker: ScanWorker | None = None
+_scheduler: ScanScheduler | None = None
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    global _worker, _scheduler
+    database = get_db()
+    _worker = ScanWorker(database)
+    _scheduler = ScanScheduler(
+        database,
+        _worker,
+        poll_seconds=float(os.getenv("GHOSTMCP_SCHEDULER_POLL_SECONDS", "30")),
+    )
+    _worker.start()
+    _scheduler.start()
+    try:
+        yield
+    finally:
+        _scheduler.stop()
+        _worker.stop()
+        _scheduler = None
+        _worker = None
+
+
+app = FastAPI(title="GhostMCP Dashboard", version="0.2.0a1", lifespan=lifespan)
 
 # Templates
 template_dir = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(template_dir))
 
 # Database
-_db = None
-
-
 def get_db():
     global _db
     if _db is None:
@@ -31,6 +59,22 @@ def get_db():
 # Helper functions
 def _generate_id() -> str:
     return uuid.uuid4().hex[:12]
+
+
+def _parse_parameters(parameters: str) -> dict:
+    try:
+        value = json.loads(parameters) if parameters else {}
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="Parameters must be valid JSON") from exc
+    if not isinstance(value, dict):
+        raise HTTPException(status_code=400, detail="Parameters must be a JSON object")
+    return value
+
+
+def _scan_worker() -> ScanWorker:
+    if _worker is None:
+        raise HTTPException(status_code=503, detail="Scan worker is not running")
+    return _worker
 
 
 # ===== Engagement Endpoints =====
@@ -69,7 +113,7 @@ async def create_engagement(
     description: str = Form(default=""),
     scope_cidrs: str = Form(default=""),
     scope_domains: str = Form(default=""),
-    max_tool_level: str = Form(default="intrusive"),
+    max_tool_level: str = Form(default="active"),
 ):
     """Create a new engagement."""
     db = get_db()
@@ -156,11 +200,10 @@ async def create_scan(
     if not engagement:
         raise HTTPException(status_code=404, detail="Engagement not found")
 
+    if tool_name not in available_dashboard_tools():
+        raise HTTPException(status_code=400, detail="Unsupported dashboard tool")
     scan_id = _generate_id()
-    try:
-        params = json.loads(parameters) if parameters else {}
-    except json.JSONDecodeError:
-        params = {}
+    params = _parse_parameters(parameters)
 
     scan = db.create_scan(
         scan_id=scan_id,
@@ -179,12 +222,19 @@ async def create_scan(
 
 @app.post("/scans/{scan_id}/start")
 async def start_scan(scan_id: str):
-    """Start a scan (async - in real implementation would queue to worker)."""
-    db = get_db()
-    scan = db.start_scan(scan_id)
+    """Queue a pending scan for worker-backed execution."""
+    scan = get_db().get_scan(scan_id)
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
-    return {"status": "started", "scan": scan.id}
+    queued = get_db().queue_scan(scan_id)
+    if queued is None:
+        raise HTTPException(status_code=409, detail="Scan is not queueable")
+    try:
+        _scan_worker().submit(scan_id)
+    except Exception as exc:
+        get_db().complete_scan(scan_id, error=str(exc))
+        raise HTTPException(status_code=503, detail="Scan worker is unavailable") from exc
+    return {"status": "queued", "scan": queued.id}
 
 
 @app.get("/scans/{scan_id}", response_class=HTMLResponse)
@@ -270,27 +320,7 @@ async def schedule_form(request: Request, engagement_id: str):
     if not engagement:
         raise HTTPException(status_code=404, detail="Engagement not found")
 
-    # Get available tools
-    tools = [
-        "nmap_service_scan_tool",
-        "whatweb_tool",
-        "nikto_tool",
-        "amass_passive_tool",
-        "gobuster_dir_tool",
-        "sslscan_tool",
-        "wafw00f_tool",
-        "nuclei_tool",
-        "ffuf_tool",
-        "feroxbuster_tool",
-        "wfuzz_tool",
-        "subfinder_tool",
-        "assetfinder_tool",
-        "dnsx_tool",
-        "gowitness_tool",
-        "jaeles_tool",
-        "trufflehog_tool",
-        "gitleaks_tool",
-    ]
+    tools = available_dashboard_tools()
 
     return templates.TemplateResponse(
         request, "schedule/new.html",
@@ -307,33 +337,55 @@ async def create_schedule(
     cron_expression: str = Form(...),
     parameters: str = Form(default="{}"),
 ):
-    """Create a scheduled scan (stored in database for now)."""
+    """Create an executable recurring scan schedule."""
     db = get_db()
     engagement = db.get_engagement(engagement_id)
     if not engagement:
         raise HTTPException(status_code=404, detail="Engagement not found")
-
-    # In a real implementation, this would use a cron scheduler
-    # For now, just show success
+    if tool_name not in available_dashboard_tools():
+        raise HTTPException(status_code=400, detail="Unsupported dashboard tool")
+    params = _parse_parameters(parameters)
     try:
-        params = json.loads(parameters) if parameters else {}
-    except json.JSONDecodeError:
-        params = {}
+        cron = CronExpression.parse(cron_expression)
+        next_run = cron.next_after(datetime.now(UTC))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    # Store in database as a special scan with cron_expression in parameters
-    schedule_id = _generate_id()
-    scan = db.create_scan(
-        scan_id=schedule_id,
+    schedule = db.create_schedule(
+        schedule_id=_generate_id(),
         engagement_id=engagement_id,
         tool_name=tool_name,
         target=target,
-        parameters={**params, "cron": cron_expression, "scheduled": True},
+        parameters=params,
+        cron_expression=cron_expression,
+        next_run_at=next_run.isoformat(),
+    )
+    if request.headers.get("HX-Request"):
+        return templates.TemplateResponse(
+            request,
+            "schedule/row.html",
+            {"request": request, "schedule": schedule},
+        )
+    schedules = db.list_schedules(engagement_id)
+    return templates.TemplateResponse(
+        request,
+        "schedule/list.html",
+        {
+            "request": request,
+            "engagement": engagement,
+            "schedules": schedules,
+        },
     )
 
-    if request.headers.get("HX-Request"):
-        return templates.TemplateResponse(request, "schedule/row.html", {"request": request, "scan": scan})
 
-    return templates.TemplateResponse(request, "schedule/list.html", {"request": request, "engagement": engagement})
+@app.post("/schedules/{schedule_id}/enabled")
+async def set_schedule_enabled(
+    schedule_id: str, enabled: bool = Form(...),
+):
+    schedule = get_db().set_schedule_enabled(schedule_id, enabled)
+    if schedule is None:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return {"status": "ok", "enabled": schedule.enabled}
 
 
 # ===== Reports =====
