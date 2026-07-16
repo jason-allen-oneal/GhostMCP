@@ -1,8 +1,11 @@
+import os
 import sys
 import types
 import unittest
 from typing import get_args, get_type_hints
 from unittest.mock import patch
+
+os.environ.setdefault("GHOSTMCP_REQUIRE_ENGAGEMENT_CONTEXT", "false")
 
 if "mcp.server.fastmcp" not in sys.modules:
     mcp_module = types.ModuleType("mcp")
@@ -39,7 +42,13 @@ class ServerControlTests(unittest.TestCase):
         args = server._validate_raw_tool_args("nmap", ["-sV", "-Pn"])
         self.assertEqual(args, ["-sV", "-Pn"])
 
-    def test_token_auth_denies_invalid_token(self) -> None:
+    def test_raw_tool_registration_is_disabled_by_default(self) -> None:
+        with patch("ghostmcp.server.ENABLE_RAW_TOOLS", False):
+            with patch.object(server.mcp, "tool") as register:
+                server._register_dynamic_kali_raw_tools()
+        register.assert_not_called()
+
+    def test_remote_authorization_requires_transport_principal(self) -> None:
         with patch("ghostmcp.server.TRANSPORT_MODE", "remote_gateway"):
             with patch("ghostmcp.server.AUTH_MODE", "token"):
                 with patch("ghostmcp.server.AUTH_TOKEN", "secret"):

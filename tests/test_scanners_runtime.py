@@ -4,6 +4,25 @@ from ghostmcp.scanners import ScannerError, ScannerTimeoutError, run_external_bi
 
 
 class ScannerRuntimeTests(unittest.TestCase):
+    def test_command_redaction_hides_sensitive_values(self) -> None:
+        from ghostmcp.scanners import _redact_command
+
+        command = [
+            "sqlmap",
+            "--auth-cred=user:secret",
+            "--token",
+            "token-value",
+        ]
+        self.assertEqual(
+            _redact_command(command),
+            [
+                "sqlmap",
+                "--auth-cred=<redacted>",
+                "--token",
+                "<redacted>",
+            ],
+        )
+
     def test_missing_binary(self) -> None:
         with self.assertRaises(ScannerError):
             run_external_binary("__ghostmcp_missing_binary__")

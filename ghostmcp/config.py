@@ -16,7 +16,7 @@ class ServerConfig:
     allowed_cidrs: tuple[ipaddress._BaseNetwork, ...] = field(default_factory=tuple)
     blocked_ports: tuple[int, ...] = (22, 2375, 2376, 3389)
     user_agent: str = "GhostMCP/0.2"
-    require_engagement_context: bool = False
+    require_engagement_context: bool = True
     allowed_domains: tuple[str, ...] = field(default_factory=tuple)
     max_tool_level: str = "active"
 
@@ -109,7 +109,7 @@ def load_config() -> ServerConfig:
         user_agent=_env("USER_AGENT", "GhostMCP/0.2") or "GhostMCP/0.2",
         require_engagement_context=_parse_bool(
             _env("REQUIRE_ENGAGEMENT_CONTEXT"),
-            False,
+            True,
         ),
         allowed_domains=_parse_csv(_env("ALLOWED_DOMAINS")),
         max_tool_level=_parse_tool_level(_env("MAX_TOOL_LEVEL"), "active"),

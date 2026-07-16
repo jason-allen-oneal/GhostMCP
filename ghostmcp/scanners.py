@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import concurrent.futures
-import hashlib
 import ipaddress
-import json
 import os
 import re
 import shutil
@@ -19,6 +17,7 @@ import urllib.request
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 
+from .audit import verify_audit_log
 from .parsers.amass import parse_amass_json
 from .parsers.assetfinder import parse_assetfinder_output
 from .parsers.cloudflair import parse_cloudflair_json
@@ -73,6 +72,35 @@ def terminate_active_processes() -> int:
             terminated += 1
     return terminated
 
+
+
+_SENSITIVE_VALUE_FLAGS = {
+    "--api-key",
+    "--auth-cred",
+    "--password",
+    "--token",
+}
+_SENSITIVE_PREFIXES = tuple(f"{flag}=" for flag in _SENSITIVE_VALUE_FLAGS)
+
+
+def _redact_command(command: list[str]) -> list[str]:
+    redacted: list[str] = []
+    redact_next = False
+    for arg in command:
+        if redact_next:
+            redacted.append("<redacted>")
+            redact_next = False
+            continue
+        if arg in _SENSITIVE_VALUE_FLAGS:
+            redacted.append(arg)
+            redact_next = True
+            continue
+        if arg.startswith(_SENSITIVE_PREFIXES):
+            flag, _, _value = arg.partition("=")
+            redacted.append(f"{flag}=<redacted>")
+            continue
+        redacted.append(arg)
+    return redacted
 
 def _run_external_tool(
     command: list[str],
@@ -132,7 +160,7 @@ def _run_external_tool(
             elapsed = int((time.monotonic() - started) * 1000)
             return {
                 "tool": binary,
-                "command": command,
+                "command": _redact_command(command),
                 "exit_code": proc.returncode,
                 "duration_ms": elapsed,
                 "stdout": stdout,
@@ -167,41 +195,8 @@ def run_external_binary(
 
 
 def verify_audit_log_integrity(log_path: str) -> dict:
-    """Validate the hash chain of the audit log."""
-    if not os.path.exists(log_path):
-        return {"status": "error", "message": "Log file not found"}
-
-    integrity_errors = []
-    events_processed = 0
-    expected_prev_hash = "0" * 64
-
-    with open(log_path) as f:
-        for line_num, line in enumerate(f, 1):
-            try:
-                event = json.loads(line)
-                events_processed += 1
-
-                # Check link
-                if event.get("prev_hash") != expected_prev_hash:
-                    integrity_errors.append(f"Line {line_num}: Hash chain break")
-
-                # Calculate current hash (excluding the hash fields themselves)
-                base_event = {k: v for k, v in event.items() if k not in ("event_hash", "signature")}
-                event_str = json.dumps(base_event, sort_keys=True)
-                calculated_hash = hashlib.sha256(event_str.encode()).hexdigest()
-
-                if event.get("event_hash") != calculated_hash:
-                    integrity_errors.append(f"Line {line_num}: Event hash mismatch")
-
-                expected_prev_hash = event.get("event_hash")
-            except Exception as e:
-                integrity_errors.append(f"Line {line_num}: JSON parse error - {str(e)}")
-
-    return {
-        "status": "success" if not integrity_errors else "failed",
-        "events_processed": events_processed,
-        "errors": integrity_errors
-    }
+    """Validate the canonical audit chain without a signing key."""
+    return verify_audit_log(log_path)
 
 
 def sqlmap_scan(url: str, args: list[str] | None = None, timeout_s: float = 300.0) -> dict:

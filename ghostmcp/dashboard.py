@@ -69,7 +69,7 @@ async def create_engagement(
     description: str = Form(default=""),
     scope_cidrs: str = Form(default=""),
     scope_domains: str = Form(default=""),
-    max_tool_level: str = Form(default="intrusive"),
+    max_tool_level: str = Form(default="active"),
 ):
     """Create a new engagement."""
     db = get_db()

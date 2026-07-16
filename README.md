@@ -12,21 +12,21 @@
 [![Security Policy](https://img.shields.io/badge/security-policy-blue)](https://github.com/jason-allen-oneal/GhostMCP/blob/main/SECURITY.md)
 [![Contributing](https://img.shields.io/badge/contributing-guidelines-blue)](https://github.com/jason-allen-oneal/GhostMCP/blob/main/CONTRIBUTING.md)
 
-**128+ security tools** — production-oriented MCP server for authorized red-team and security operations.
+**128+ supported security integrations** for authorized assessment workflows. GhostMCP is currently an alpha release and defaults to a restricted posture.
 
 GhostMCP provides a comprehensive toolkit for authorized security assessments:
 
 - **16 core tools** — DNS, WHOIS, HTTP, TLS, port scanning, IOC extraction, risk scoring, recon generators
 - **36 curated binary-backed tools** — nmap, whatweb, nikto, amass, gobuster, nuclei, ffuf, feroxbuster, wfuzz, subfinder, assetfinder, dnsx, gowitness, jaeles, cloudflair, s3scanner, trufflehog, gitleaks, sqlmap, hydra, sslscan, wafw00f, wpscan, enum4linux-ng, crackmapexec, smbmap, smbclient, rpcclient, theharvester, masscan, dnsrecon, dirsearch, sslyze, searchsploit, exiftool, binwalk (auto-discovered at startup)
-- **76 raw binary tools** — any Kali tool on `PATH` exposed as `<binary>_raw_tool`
+- **76 raw binary wrappers** — supported but disabled by default; each binary must be explicitly allowlisted
 - **Engagement context** — `engagement_id`, `engagement_mode` (`default|passive|active|intrusive`)
 - **Policy controls** — CIDR/domain allowlists, port blocking, rate limits, tool-level ceilings
 - **Proxy/Tor** — `GHOSTMCP_PROXY_MODE=tor|proxychains|torsocks` for all outbound traffic
 - **Encrypted credentials** — Fernet-encrypted store + Vault/AWS/GCP secret managers
 - **Database-backed** — SQLite engagement/scan/finding tracking with web dashboard
-- **Plugin system** — Entrypoint-based external tool extensions
+- **Plugin system** — Entrypoint-based extensions, disabled by default and explicitly allowlisted
 - **Remote transport** — `streamable-http` with token/mTLS auth
-- **Audit & metrics** — Hash-chained audit log, per-tool metrics, health probes
+- **Audit & metrics** — Persistent canonical hash chain, optional HMAC signatures, per-tool metrics, health probes
 
 ## Quick Links
 - [Documentation](docs/README.md)
@@ -39,7 +39,7 @@ GhostMCP supports `streamable-http` transport via `GHOSTMCP_TRANSPORT_MODE=remot
 
 ### Threat Model & Auth Modes
 1. **`AUTH_MODE=none`**: **Hard blocked** in remote mode unless `GHOSTMCP_ALLOW_INSECURE_REMOTE_NO_AUTH=true` is set. Local testing only.
-2. **`AUTH_MODE=token`**: Requires `GHOSTMCP_AUTH_TOKEN`. Client provides token in `auth_token` field.
+2. **`AUTH_MODE=token`**: Requires `GHOSTMCP_AUTH_TOKEN`. Clients authenticate with `Authorization: Bearer <token>` at the HTTP transport. Tokens are not part of MCP tool schemas.
 3. **`AUTH_MODE=mtls`**: Most secure. Requires CA, client cert, and private key. Enforces mutual TLS.
 
 **Recommendations:**
@@ -147,7 +147,7 @@ ghostmcp-dashboard
 - `binwalk_tool` — Firmware/binary analysis
 
 ### 3) Generated raw binary tools (76+, pattern: `<binary>_raw_tool`)
-Any Kali tool on `PATH` auto-registered. Example: `testssl.sh` → `testssl_sh_raw_tool`.
+Raw wrappers are disabled by default. Set `GHOSTMCP_ENABLE_RAW_TOOLS=true` and explicitly list binaries in `GHOSTMCP_RAW_TOOL_ALLOWLIST`. Example: `GHOSTMCP_RAW_TOOL_ALLOWLIST=nmap,testssl.sh`.
 Full list includes: masscan, dnsrecon, dnsenum, fierce, theharvester, recon-ng, dirsearch, hydra, enum4linux-ng, crackmapexec, smbclient, smbmap, rpcclient, searchsploit, exiftool, binwalk, and 60+ more.
 
 ### 4) Proxy/Tor Mode (NEW)
@@ -166,7 +166,7 @@ pip install ghostmcp-plugin-example
 # Or set custom entrypoint group
 export GHOSTMCP_PLUGIN_GROUP=myorg.ghostmcp.plugins
 ```
-Develop plugins via `ghostmcp.plugins` entrypoint. See [Plugin Development](docs/PLUGINS.md).
+Develop plugins via the `ghostmcp.plugins` entrypoint. Runtime loading requires `GHOSTMCP_ENABLE_PLUGINS=true` and a matching `GHOSTMCP_PLUGIN_ALLOWLIST`. See [Plugin Development](docs/PLUGINS.md).
 
 ## Requirements
 - Python 3.11+
@@ -201,8 +201,8 @@ Use `.env.example` as baseline.
 - `GHOSTMCP_ALLOWED_DOMAINS` (optional, comma-separated)
 - `GHOSTMCP_BLOCKED_PORTS` (default: `22,2375,2376,3389`)
 - `GHOSTMCP_USER_AGENT` (default: `GhostMCP/0.1`)
-- `GHOSTMCP_REQUIRE_ENGAGEMENT_CONTEXT` (default: `false`)
-- `GHOSTMCP_MAX_TOOL_LEVEL` (`passive|active|intrusive`, default: `intrusive`)
+- `GHOSTMCP_REQUIRE_ENGAGEMENT_CONTEXT` (default: `true`)
+- `GHOSTMCP_MAX_TOOL_LEVEL` (`passive|active|intrusive`, default: `active`)
 - `GHOSTMCP_TRANSPORT_MODE` (`stdio|remote_gateway`, default: `stdio`)
 - `GHOSTMCP_AUTH_MODE` (`none|token|mtls`, default: `none`)
 - `GHOSTMCP_AUTH_TOKEN` (required for token mode)
@@ -268,7 +268,6 @@ ghostmcp-dashboard
 Most tools accept:
 - `engagement_id` (optional unless required by policy)
 - `engagement_mode` (`default`, `passive`, `active`, `intrusive`); `default` = `passive`
-- `auth_token` (required for `remote_gateway` + `token` auth)
 
 Authorization enforces:
 - Global max tool level (`GHOSTMCP_MAX_TOOL_LEVEL`)
@@ -278,7 +277,8 @@ Authorization enforces:
 
 ## Audit & Safety
 - Structured JSON logs
-- Per-call audit entries with hash chaining (`prev_hash`, `event_hash`)
+- Per-call audit entries using canonical JSON and a persistent hash chain (`prev_hash`, `event_hash`)
+- Optional HMAC signatures using `GHOSTMCP_AUDIT_HMAC_KEY_FILE`
 - Optional JSONL audit sink (`GHOSTMCP_AUDIT_SINK_PATH`)
 - Per-tool runtime metrics (`metrics_tool`)
 - Runtime orchestration probe (`runtime_probe_tool`)
