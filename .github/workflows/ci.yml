@@ -26,37 +26,56 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
-      - name: Install pip-tools
-        run: pip install pip-tools
+      - name: Install lock tooling
+        run: python -m pip install pip-tools==7.4.1
 
-      - name: Generate dev lock file
-        run: pip-compile --generate-hashes --output-file=requirements-dev.lock.txt pyproject.toml --extra dev
+      - name: Generate development lock file
+        run: >-
+          pip-compile --generate-hashes
+          --output-file=requirements-dev.lock.txt
+          pyproject.toml --extra dev --extra dashboard --extra credentials
 
-      - name: Generate release lock file
-        run: pip-compile --generate-hashes --output-file=requirements-release.lock.txt pyproject.toml
+      - name: Generate runtime lock file
+        run: >-
+          pip-compile --generate-hashes
+          --output-file=requirements.lock.txt
+          pyproject.toml
 
       - name: Install dependencies
         run: |
-          pip install --require-hashes -r requirements-dev.lock.txt
-          pip install -e . --no-deps
+          python -m pip install --require-hashes -r requirements-dev.lock.txt
+          python -m pip install -e . --no-deps
 
-      - name: Lint (ruff)
+      - name: Lint
         run: ruff check .
 
-      - name: Type check (mypy)
+      - name: Type check
         run: mypy ghostmcp
 
-      - name: Security static scan (bandit)
+      - name: Security static scan
         run: bandit -q -r ghostmcp
 
-      - name: Dependency audit (pip-audit)
+      - name: Dependency audit
         run: pip-audit
 
       - name: Unit and integration tests
-        run: python -m unittest discover -s tests
+        run: python -m unittest discover -s tests -v
 
       - name: Build package artifacts
         run: python -m build
+
+      - name: Verify built wheel in a clean environment
+        run: |
+          python -m venv /tmp/ghostmcp-wheel-smoke
+          /tmp/ghostmcp-wheel-smoke/bin/python -m pip install --upgrade pip
+          /tmp/ghostmcp-wheel-smoke/bin/python -m pip install dist/*.whl jinja2 python-multipart cryptography
+          /tmp/ghostmcp-wheel-smoke/bin/python - <<'PY'
+          from importlib.resources import files
+          import ghostmcp.parsers.nmap
+          import ghostmcp.dashboard
+          assert files("ghostmcp").joinpath("templates/dashboard.html").is_file()
+          PY
+          /tmp/ghostmcp-wheel-smoke/bin/ghostmcp --version
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -75,7 +94,7 @@ jobs:
       - name: Build container image
         run: docker build -t ghostmcp:ci -f deploy/container/Dockerfile .
 
-      - name: Scan image (Trivy)
+      - name: Scan image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:
           image-ref: ghostmcp:ci
