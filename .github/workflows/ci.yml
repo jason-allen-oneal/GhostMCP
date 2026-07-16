@@ -27,7 +27,7 @@ jobs:
           cache: pip
 
       - name: Install lock tooling
-        run: python -m pip install pip-tools==7.4.1
+        run: python -m pip install pip-tools
 
       - name: Generate development lock file
         run: >-
