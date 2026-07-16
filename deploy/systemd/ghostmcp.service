@@ -1,6 +1,7 @@
 [Unit]
 Description=GhostMCP Server
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
@@ -8,14 +9,23 @@ User=ghostmcp
 Group=ghostmcp
 WorkingDirectory=/opt/ghostmcp
 EnvironmentFile=/etc/ghostmcp/ghostmcp.env
+Environment=GHOSTMCP_DB_PATH=/var/lib/ghostmcp/ghostmcp.db
+Environment=GHOSTMCP_AUDIT_SINK_PATH=/var/log/ghostmcp/audit.jsonl
 ExecStart=/opt/ghostmcp/.venv/bin/ghostmcp
 Restart=on-failure
 RestartSec=3
+UMask=0077
+
+StateDirectory=ghostmcp
+StateDirectoryMode=0750
+LogsDirectory=ghostmcp
+LogsDirectoryMode=0750
+
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/log/ghostmcp
+ReadWritePaths=/var/lib/ghostmcp /var/log/ghostmcp
 
 [Install]
 WantedBy=multi-user.target
