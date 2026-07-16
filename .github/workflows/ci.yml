@@ -29,7 +29,7 @@ jobs:
           cache: pip
 
       - name: Install lint and lock tooling
-        run: python -m pip install ruff pip-tools
+        run: python -m pip install "setuptools>=83" ruff pip-tools
 
       - name: Collect lint result
         id: lint
@@ -55,15 +55,27 @@ jobs:
 
       - name: Generate development lock file
         run: >-
-          pip-compile --generate-hashes
+          pip-compile --generate-hashes --allow-unsafe
           --output-file=requirements-dev.lock.txt
           pyproject.toml --extra dev --extra dashboard --extra credentials
 
       - name: Generate runtime lock file
         run: >-
-          pip-compile --generate-hashes
+          pip-compile --generate-hashes --allow-unsafe
           --output-file=requirements.lock.txt
           pyproject.toml
+
+      - name: Generate release lock file
+        run: >-
+          pip-compile --generate-hashes --allow-unsafe
+          --output-file=requirements-release.lock.txt
+          pyproject.toml --extra release
+
+      - name: Upload generated lock files
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: locks-py${{ matrix.python-version }}
+          path: requirements*.lock.txt
 
       - name: Install dependencies
         run: |
@@ -119,7 +131,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          pip-audit > pip-audit-output.txt 2>&1
+          pip-audit -r requirements-dev.lock.txt > pip-audit-output.txt 2>&1
           status=$?
           cat pip-audit-output.txt
           echo "status=$status" >> "$GITHUB_OUTPUT"
